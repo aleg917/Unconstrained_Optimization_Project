@@ -135,23 +135,44 @@ Il report deve descrivere test preliminari con parametri diversi e motivare la s
 
 ---
 
-## Struttura del progetto (consigliata)
+## Struttura del progetto (attuale)
+
+`functions/` e `gradients/` sono **separati** per poter sostituire il gradiente esatto con uno approssimato (FD) senza toccare il codice del metodo: il metodo `steepest_descent` riceve `grad_f` come callable e non sa né si interessa di come è calcolato.
 
 ```
 Unconstrained_Optimization_Project/
 ├── src/
+│   ├── functions/                 ← solo F(x) e punti iniziali suggeriti
+│   │   ├── problem16.py           → f16, x_bar_16
+│   │   └── problem32.py           → f32, x_bar_32
+│   ├── gradients/                 ← problem-specific (esatti) + generico (FD)
+│   │   ├── problem16.py           → grad_f16  (esatto)
+│   │   ├── problem32.py           → grad_f32  (esatto)
+│   │   └── finite_diff.py         → grad_fd_forward(f, x, k, scaled)
 │   ├── methods/
-│   │   └── steepest_descent.py   ← algoritmo + backtracking
-│   ├── problems/
-│   │   ├── problem16.py          ← F(x), grad_F(x), x_bar(n)
-│   │   └── problem32.py          ← F(x), grad_F(x), x_bar(n)
-│   └── finite_differences.py     ← grad_fd(f, x, h_type, k)
-├── experiments/
-│   └── run_experiments.py        ← loop su n, starting points, tabelle
-├── plots/
-│   └── plot_results.py           ← top-view n=2, convergence rates
-└── main.py
+│   │   └── steepest_descent.py    → steepest_descent, armijo_backtracking
+│   └── starting_points.py         → generate_starting_points
+├── main.ipynb                     ← notebook di visualizzazione e demo
+├── PLAN.md
+└── report_notes.md
 ```
+
+**Pattern di chiamata** (futuro `experiments/run_experiments.py`):
+
+```python
+from src.functions import f16, x_bar_16
+from src.gradients import grad_f16, grad_fd_forward
+from src.methods import steepest_descent
+
+# Gradiente esatto
+res_ex = steepest_descent(f16, grad_f16, x_bar_16(1000))
+
+# Gradiente FD (basta un wrapper lambda)
+grad_fd = lambda x: grad_fd_forward(f16, x, k=8, scaled=False)
+res_fd = steepest_descent(f16, grad_fd, x_bar_16(1000))
+```
+
+> Da aggiungere quando servono: cartelle `experiments/` (loop sperimentali e generazione tabelle) e `plots/` (top-view per n=2, convergence rates).
 
 ---
 

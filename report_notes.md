@@ -222,7 +222,44 @@ Costo: $O(n)$. Il gradiente riusa il vettore $f_k$ già calcolato.
 
 ---
 
-## 5. Visualizzazione $n=2$
+## 5. Organizzazione del codice
+
+I file sono separati in tre livelli — **funzioni**, **gradienti**, **metodi** — in modo che lo stesso metodo di ottimizzazione possa ricevere indifferentemente un gradiente esatto o un'approssimazione (differenze finite). Questo è essenziale perché l'assignment richiede di confrontare proprio queste due varianti.
+
+```
+src/
+├── functions/                 ← solo F(x) e punti iniziali suggeriti
+│   ├── problem16.py           → f16, x_bar_16
+│   └── problem32.py           → f32, x_bar_32
+├── gradients/                 ← problem-specific (esatti) + generico (FD)
+│   ├── problem16.py           → grad_f16  (esatto)
+│   ├── problem32.py           → grad_f32  (esatto)
+│   └── finite_diff.py         → grad_fd_forward(f, x, k, scaled)
+├── methods/
+│   └── steepest_descent.py    → steepest_descent, armijo_backtracking
+└── starting_points.py         → generate_starting_points
+```
+
+**Pattern di chiamata**: il metodo riceve `f` e `grad_f` come callable e non sa né si interessa di quale gradiente stia usando.
+
+```python
+from src.functions import f16, x_bar_16
+from src.gradients import grad_f16, grad_fd_forward
+from src.methods import steepest_descent
+
+# (a) gradiente esatto
+res_ex = steepest_descent(f16, grad_f16, x_bar_16(1000))
+
+# (b) gradiente FD — basta un wrapper lambda
+grad_fd = lambda x: grad_fd_forward(f16, x, k=8, scaled=False)
+res_fd = steepest_descent(f16, grad_fd, x_bar_16(1000))
+```
+
+Nel report si descrive questa decisione architetturale come una conseguenza diretta del requisito sperimentale (confronto esatto vs FD), e non un dettaglio implementativo.
+
+---
+
+## 6. Visualizzazione $n=2$
 
 Per ogni problema si genera una griglia $400 \times 400$ su $[-2\pi, 2\pi]^2$ (Problem 16) e $[-3, 3]^2$ (Problem 32). $F$ viene valutata in tutti i punti tramite `np.vectorize`.
 
@@ -236,7 +273,7 @@ Queste figure costituiscono materiale per la sezione "top view per $n=2$" obblig
 
 ---
 
-## 6. Implicazioni per il Steepest Descent (analisi $n=2$)
+## 7. Implicazioni per il Steepest Descent (analisi $n=2$)
 
 Il confronto delle due topografie suggerisce comportamenti **diversi** del Steepest Descent al variare del punto iniziale, ed è un punto da sviluppare nella discussione dei risultati sperimentali.
 
@@ -260,11 +297,14 @@ I 4 minimi globali (tutti con $F = 0$) **non** sono legati da una simmetria di t
 
 ---
 
-## 7. Da fare
+## 8. Da fare
 
-- Implementare `steepest_descent.py` con backtracking di Armijo.
-- Generare i 6 punti iniziali (1 suggerito + 5 random, seed = min student-ID).
-- Eseguire gli esperimenti per $n \in \{10^3, 10^4, 10^5\}$.
-- Implementare il gradiente con differenze finite (forward, $h$ fisso e scalato, $k\in\{4,8,12\}$).
-- Compilare le tabelle obbligatorie: `start_pt_ID | grad_norm | iters/max_iters | success | rate_of_conv | time`.
-- Aggiungere figure dei convergence rates sperimentali.
+- ✅ Funzioni (`f16`, `f32`) e gradienti esatti (`grad_f16`, `grad_f32`) — fatti.
+- ✅ Scheletro di `steepest_descent` con backtracking di Armijo — fatto (`src/methods/steepest_descent.py`).
+- ✅ Skeleton di `grad_fd_forward` (forward-difference, fisso e scalato) — fatto (`src/gradients/finite_diff.py`).
+- ✅ Helper per i 6 punti iniziali — fatto (`src/starting_points.py`).
+- ⬜ Decidere il `seed` (= minimo student-ID del team).
+- ⬜ Eseguire gli esperimenti per $n \in \{10^3, 10^4, 10^5\}$ con entrambi i gradienti (esatto e FD per $k\in\{4,8,12\}$, fisso e scalato).
+- ⬜ Compilare le tabelle obbligatorie: `start_pt_ID | grad_norm | iters/max_iters | success | rate_of_conv | time`.
+- ⬜ Per Prob.32 ($n=2$): classificare ciascun run per **bacino di attrazione** raggiunto.
+- ⬜ Generare le figure di convergence rates sperimentali per ogni $n$.
