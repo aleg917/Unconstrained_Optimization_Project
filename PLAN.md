@@ -40,6 +40,21 @@ dove `fⱼ₋₁ = 0` se j=1, `fⱼ₊₁ = 0` se j=n.
 
 ---
 
+## Insight dal caso n=2 (per discussione sperimentale)
+
+L'analisi analitica del caso n=2 (vedi `report_notes.md` §2.4 e §3.4) rivela due topografie qualitativamente diverse:
+
+- **Problem 16**: per n=2 la funzione è **separabile**, i minimi locali sono **tutti globali** (stesso valore F* = 3 - 2√5) e formano un reticolo periodico di passo 2π. I bacini di attrazione sono simmetrici per traslazione: la *qualità* del minimo raggiunto non dipende dal punto iniziale.
+
+- **Problem 32**: la condizione F = 0 (somma di quadrati nulla) ammette **4 zeri distinti** in ℝ² (2 sulla diagonale + 2 off-diagonale, dalle radici di `(2u² - 2u - 1)(2u² - 4u + 1) = 0`). I 4 bacini di attrazione **non sono** legati da simmetria → punti iniziali diversi conducono a minimi globali diversi.
+
+**Implicazioni per il setup sperimentale**:
+- Per Problem 32, n=2: oltre alle metriche standard, **classificare ciascun run** in base al bacino raggiunto (A, B, C, D). È materiale narrativo forte per il report.
+- Per n > 2: la separabilità (P16) si rompe e il numero di zeri di P32 cresce → ci si aspetta più variabilità tra punti iniziali random in entrambi i problemi.
+- Per il top-view a n=2: usare **`LogNorm`** sul colormap di P32 (la funzione cresce ~x⁴, le valli a F→0 spariscono in scala lineare) e clipping di Z per il 3D.
+
+---
+
 ## Steepest Descent + Armijo Backtracking
 
 **Algoritmo**:
