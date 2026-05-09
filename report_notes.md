@@ -228,34 +228,60 @@ I file sono separati in tre livelli — **funzioni**, **gradienti**, **metodi** 
 
 ```
 src/
-├── functions/                 ← solo F(x) e punti iniziali suggeriti
-│   ├── problem16.py           → f16, x_bar_16
-│   └── problem32.py           → f32, x_bar_32
-├── gradients/                 ← problem-specific (esatti) + generico (FD)
-│   ├── problem16.py           → grad_f16  (esatto)
-│   ├── problem32.py           → grad_f32  (esatto)
-│   └── finite_diff.py         → grad_fd_forward(f, x, k, scaled)
+├── functions/                  ← solo F(x) e punti iniziali suggeriti
+│   ├── problem16.py            → f16, x_bar_16
+│   └── problem32.py            → f32, x_bar_32
+├── gradients/                  ← problem-specific (esatti) + generico (FD)
+│   ├── problem16.py            → grad_f16  (esatto)
+│   ├── problem32.py            → grad_f32  (esatto)
+│   └── finite_diff.py          → grad_fd_forward(f, x, k, scaled)
+├── stopping_criteria/          ← strategie plug-in di arresto (6 totali)
+│   ├── base.py                 → StoppingCriterion (classe base)
+│   ├── absolute/               → 3 criteri "absolute"
+│   │   ├── grad_norm.py
+│   │   ├── f_change.py
+│   │   └── x_change.py
+│   └── relative/               → 3 criteri "relative" (no F_0, no x_0)
+│       ├── grad_norm.py
+│       ├── f_change.py
+│       └── x_change.py
 ├── methods/
-│   └── steepest_descent.py    → steepest_descent, armijo_backtracking
-└── starting_points.py         → generate_starting_points
+│   └── steepest_descent.py     → steepest_descent, armijo_backtracking
+└── starting_points.py          → generate_starting_points
 ```
 
-**Pattern di chiamata**: il metodo riceve `f` e `grad_f` come callable e non sa né si interessa di quale gradiente stia usando.
+Tre livelli di pluggability nel metodo:
+
+1. **funzione** (`f`): il problema test.
+2. **gradiente** (`grad_f`): esatto problem-specific oppure approssimato `grad_fd_forward` (FD).
+3. **stopping criterion**: una delle 6 strategie, passata come oggetto (`stopping=GradNormAbsolute(1e-6)`). Ogni run usa **una** sola strategia, in modo da poter attribuire la terminazione nelle tabelle.
+
+**Pattern di chiamata**:
 
 ```python
 from src.functions import f16, x_bar_16
 from src.gradients import grad_f16, grad_fd_forward
 from src.methods import steepest_descent
+from src.stopping_criteria import all_criteria, GradNormAbsolute
 
-# (a) gradiente esatto
-res_ex = steepest_descent(f16, grad_f16, x_bar_16(1000))
+# Run singolo
+res = steepest_descent(f16, grad_f16, x_bar_16(1000),
+                       stopping=GradNormAbsolute(tol=1e-6))
 
-# (b) gradiente FD — basta un wrapper lambda
+# Confronto sperimentale: 6 criteri sullo stesso x_0
+for crit in all_criteria():
+    r = steepest_descent(f16, grad_f16, x_bar_16(1000), stopping=crit)
+    print(crit.name, r['n_iter'], r['stop_reason'])
+
+# Gradiente FD via wrapper lambda
 grad_fd = lambda x: grad_fd_forward(f16, x, k=8, scaled=False)
-res_fd = steepest_descent(f16, grad_fd, x_bar_16(1000))
+res_fd = steepest_descent(f16, grad_fd, x_bar_16(1000),
+                          stopping=GradNormAbsolute(tol=1e-6))
 ```
 
-Nel report si descrive questa decisione architetturale come una conseguenza diretta del requisito sperimentale (confronto esatto vs FD), e non un dettaglio implementativo.
+Le tre dimensioni di sostituzione sono **ortogonali**: nel ciclo sperimentale si itera su (gradiente × stopping × punto iniziale) senza modificare il metodo.
+
+Per la teoria dietro le 6 stopping conditions vedi `stopping_criteria.md` (ordini di scala $\tau_g$, $\alpha\tau_g$, $\alpha\tau_g^2$ e diagnosi distinte per ciascun criterio).
 
 ---
 
@@ -300,11 +326,12 @@ I 4 minimi globali (tutti con $F = 0$) **non** sono legati da una simmetria di t
 ## 8. Da fare
 
 - ✅ Funzioni (`f16`, `f32`) e gradienti esatti (`grad_f16`, `grad_f32`) — fatti.
-- ✅ Scheletro di `steepest_descent` con backtracking di Armijo — fatto (`src/methods/steepest_descent.py`).
+- ✅ `steepest_descent` con backtracking di Armijo e stopping plug-in — fatto.
+- ✅ Sei stopping criteria (3 absolute + 3 relative) in `src/stopping_criteria/` — fatti.
 - ✅ Skeleton di `grad_fd_forward` (forward-difference, fisso e scalato) — fatto (`src/gradients/finite_diff.py`).
 - ✅ Helper per i 6 punti iniziali — fatto (`src/starting_points.py`).
 - ⬜ Decidere il `seed` (= minimo student-ID del team).
-- ⬜ Eseguire gli esperimenti per $n \in \{10^3, 10^4, 10^5\}$ con entrambi i gradienti (esatto e FD per $k\in\{4,8,12\}$, fisso e scalato).
-- ⬜ Compilare le tabelle obbligatorie: `start_pt_ID | grad_norm | iters/max_iters | success | rate_of_conv | time`.
+- ⬜ Eseguire gli esperimenti per $n \in \{10^3, 10^4, 10^5\}$ con (gradiente esatto + FD per $k\in\{4,8,12\}$, fisso e scalato) × (6 stopping criteria) × (6 punti iniziali).
+- ⬜ Compilare le tabelle obbligatorie: `start_pt_ID | stop_reason | grad_norm | iters | success | |F-F*| | ||x-x*|| | time`.
 - ⬜ Per Prob.32 ($n=2$): classificare ciascun run per **bacino di attrazione** raggiunto.
 - ⬜ Generare le figure di convergence rates sperimentali per ogni $n$.

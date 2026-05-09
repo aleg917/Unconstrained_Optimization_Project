@@ -1,10 +1,14 @@
 """Steepest Descent + Armijo Backtracking line search.
 
-NB: scheletro/riferimento — i loop sono completi ma puoi sostituire i
-parametri o le condizioni di arresto a seconda di cosa vuoi discutere
-nella relazione (vedi PLAN.md).
+Il criterio di arresto e' una *strategia plug-in*: si passa un'istanza di
+`StoppingCriterion` (vedi `src.stopping_criteria`) e il metodo non sa ne'
+si interessa di quale criterio sta usando. Questo permette di confrontare
+sperimentalmente i sei criteri (3 assoluti + 3 relativi) sullo stesso run.
+`max_iter` resta come safety net universale.
 """
 import numpy as np
+
+from ..stopping_criteria.base import StoppingCriterion
 
 
 def armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5,
@@ -17,7 +21,7 @@ def armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5,
     ---------
     f         : callable, F(x) -> scalare
     x         : punto corrente, ndarray (n,)
-    fx        : valore F(x) gia calcolato
+    fx        : valore F(x) gia' calcolato
     g         : gradiente in x, ndarray (n,)
     d         : direzione di discesa, ndarray (n,)  (di solito -g)
     alpha0    : passo iniziale (default 1, "Newton step")
@@ -39,26 +43,24 @@ def armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5,
     return alpha, max_iter
 
 
-def steepest_descent(f, grad_f, x0, alpha0=1.0, c1=1e-4, rho=0.5,
-                     tol=1e-6, tol_rel=None, max_iter=1000,
-                     return_history=False):
-    """Discesa più ripida con backtracking di Armijo.
+def steepest_descent(f, grad_f, x0, stopping: StoppingCriterion,
+                     alpha0=1.0, c1=1e-4, rho=0.5,
+                     max_iter=1000, return_history=False):
+    """Discesa piu' ripida con backtracking di Armijo e stopping plug-in.
 
     Parametri
     ---------
     f, grad_f      : F e gradiente esatto/approssimato
     x0             : punto iniziale, ndarray (n,)
+    stopping       : istanza di StoppingCriterion (es. GradNormAbsolute(1e-6))
     alpha0,c1,rho  : parametri della line search
-    tol            : tolleranza assoluta su ||grad||
-    tol_rel        : tolleranza relativa su ||grad|| / ||grad(x0)||
-                     (None => disabilitata)
-    max_iter       : numero massimo di iterazioni
+    max_iter       : numero massimo di iterazioni (safety)
     return_history : se True, memorizza la traiettoria (utile per n=2)
 
     Ritorna
     -------
     result : dict con chiavi
-        x_star, f_star, grad_norm, n_iter, success, message,
+        x_star, f_star, grad_norm, n_iter, success, stop_reason,
         [history]: lista di dict {x, f, grad_norm, alpha} per ogni passo.
     """
     x = np.asarray(x0, dtype=float).copy()
@@ -66,31 +68,30 @@ def steepest_descent(f, grad_f, x0, alpha0=1.0, c1=1e-4, rho=0.5,
 
     fx = f(x)
     g = grad_f(x)
-    g_norm0 = float(np.linalg.norm(g))
-    g_norm = g_norm0
+    g_norm = float(np.linalg.norm(g))
+
+    stopping.initialize(x, fx, g)
 
     if return_history:
         history.append({'x': x.copy(), 'f': fx,
                         'grad_norm': g_norm, 'alpha': None})
 
+    x_prev, fx_prev = x.copy(), fx
     success = False
-    message = "max_iter raggiunto"
+    stop_reason = "max_iter"
     k = 0
 
     for k in range(max_iter):
-        # criteri di arresto sul gradiente
-        if g_norm <= tol:
+        if stopping.should_stop(k, x, fx, g, x_prev, fx_prev):
             success = True
-            message = f"||grad|| <= tol={tol:g}"
-            break
-        if tol_rel is not None and g_norm <= tol_rel * g_norm0:
-            success = True
-            message = f"||grad||/||grad0|| <= tol_rel={tol_rel:g}"
+            stop_reason = stopping.name
             break
 
         d = -g
         alpha, _ = armijo_backtracking(f, x, fx, g, d,
                                        alpha0=alpha0, c1=c1, rho=rho)
+
+        x_prev, fx_prev = x.copy(), fx
         x = x + alpha * d
         fx = f(x)
         g = grad_f(x)
@@ -106,7 +107,7 @@ def steepest_descent(f, grad_f, x0, alpha0=1.0, c1=1e-4, rho=0.5,
         'grad_norm': g_norm,
         'n_iter': k + 1,
         'success': success,
-        'message': message,
+        'stop_reason': stop_reason,
     }
     if return_history:
         result['history'] = history

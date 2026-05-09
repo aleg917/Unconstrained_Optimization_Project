@@ -142,19 +142,31 @@ Il report deve descrivere test preliminari con parametri diversi e motivare la s
 ```
 Unconstrained_Optimization_Project/
 ├── src/
-│   ├── functions/                 ← solo F(x) e punti iniziali suggeriti
-│   │   ├── problem16.py           → f16, x_bar_16
-│   │   └── problem32.py           → f32, x_bar_32
-│   ├── gradients/                 ← problem-specific (esatti) + generico (FD)
-│   │   ├── problem16.py           → grad_f16  (esatto)
-│   │   ├── problem32.py           → grad_f32  (esatto)
-│   │   └── finite_diff.py         → grad_fd_forward(f, x, k, scaled)
+│   ├── functions/                  ← solo F(x) e punti iniziali suggeriti
+│   │   ├── problem16.py            → f16, x_bar_16
+│   │   └── problem32.py            → f32, x_bar_32
+│   ├── gradients/                  ← problem-specific (esatti) + generico (FD)
+│   │   ├── problem16.py            → grad_f16  (esatto)
+│   │   ├── problem32.py            → grad_f32  (esatto)
+│   │   └── finite_diff.py          → grad_fd_forward(f, x, k, scaled)
+│   ├── stopping_criteria/          ← strategie plug-in di arresto
+│   │   ├── base.py                 → StoppingCriterion (classe base)
+│   │   ├── absolute/
+│   │   │   ├── grad_norm.py        → GradNormAbsolute
+│   │   │   ├── f_change.py         → FChangeAbsolute
+│   │   │   └── x_change.py         → XChangeAbsolute
+│   │   ├── relative/
+│   │   │   ├── grad_norm.py        → GradNormRelative
+│   │   │   ├── f_change.py         → FChangeRelative
+│   │   │   └── x_change.py         → XChangeRelative
+│   │   └── __init__.py             → re-exports + all_criteria(tol_g, tol_f, tol_x)
 │   ├── methods/
-│   │   └── steepest_descent.py    → steepest_descent, armijo_backtracking
-│   └── starting_points.py         → generate_starting_points
-├── main.ipynb                     ← notebook di visualizzazione e demo
+│   │   └── steepest_descent.py     → steepest_descent, armijo_backtracking
+│   └── starting_points.py          → generate_starting_points
+├── main.ipynb                      ← notebook di visualizzazione e demo
 ├── PLAN.md
-└── report_notes.md
+├── report_notes.md
+└── stopping_criteria.md            ← analisi teorica delle 6 condizioni
 ```
 
 **Pattern di chiamata** (futuro `experiments/run_experiments.py`):
@@ -163,13 +175,21 @@ Unconstrained_Optimization_Project/
 from src.functions import f16, x_bar_16
 from src.gradients import grad_f16, grad_fd_forward
 from src.methods import steepest_descent
+from src.stopping_criteria import all_criteria, GradNormAbsolute
 
-# Gradiente esatto
-res_ex = steepest_descent(f16, grad_f16, x_bar_16(1000))
+# Run singolo: gradiente esatto, criterio assoluto sul gradiente
+res = steepest_descent(f16, grad_f16, x_bar_16(1000),
+                       stopping=GradNormAbsolute(tol=1e-6))
+
+# Loop sperimentale: 6 criteri sullo stesso punto iniziale
+for crit in all_criteria(tol_g=1e-6, tol_f=1e-12, tol_x=1e-8):
+    r = steepest_descent(f16, grad_f16, x_bar_16(1000), stopping=crit)
+    print(f"{crit.name:10s} | iters={r['n_iter']:4d} | stop={r['stop_reason']}")
 
 # Gradiente FD (basta un wrapper lambda)
 grad_fd = lambda x: grad_fd_forward(f16, x, k=8, scaled=False)
-res_fd = steepest_descent(f16, grad_fd, x_bar_16(1000))
+res_fd = steepest_descent(f16, grad_fd, x_bar_16(1000),
+                          stopping=GradNormAbsolute(tol=1e-6))
 ```
 
 > Da aggiungere quando servono: cartelle `experiments/` (loop sperimentali e generazione tabelle) e `plots/` (top-view per n=2, convergence rates).
