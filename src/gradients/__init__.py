@@ -9,7 +9,7 @@ indifferentemente il gradiente esatto o un wrapper FD. Esempio:
     g_fd = grad_fd_forward(f16, x, k=8, scaled=False)
 """
 from .problem16 import grad_f16
-from .problem32 import grad_f32
+from .problem28 import grad_f28
 from .finite_diff import grad_fd_forward
 
-__all__ = ["grad_f16", "grad_f32", "grad_fd_forward"]
+__all__ = ["grad_f16", "grad_f28", "grad_fd_forward"]

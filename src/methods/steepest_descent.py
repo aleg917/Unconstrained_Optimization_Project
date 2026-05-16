@@ -1,4 +1,4 @@
-"""Steepest Descent + Armijo Backtracking line search.
+"""Steepest Descent.
 
 Il criterio di arresto e' una *strategia plug-in*: si passa un'istanza di
 `StoppingCriterion` (vedi `src.stopping_criteria`) e il metodo non sa ne'
@@ -10,37 +10,6 @@ import numpy as np
 
 from ..stopping_criteria.base import StoppingCriterion
 
-
-def armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5,
-                        max_iter=50):
-    """Backtracking line search (Armijo).
-
-    Trova alpha tale che  f(x + alpha*d) <= fx + c1*alpha*<g, d>.
-
-    Parametri
-    ---------
-    f         : callable, F(x) -> scalare
-    x         : punto corrente, ndarray (n,)
-    fx        : valore F(x) gia' calcolato
-    g         : gradiente in x, ndarray (n,)
-    d         : direzione di discesa, ndarray (n,)  (di solito -g)
-    alpha0    : passo iniziale (default 1, "Newton step")
-    c1        : costante di Armijo, in (0, 1/2)
-    rho       : fattore di riduzione, in (0, 1)
-    max_iter  : numero massimo di backtrack
-
-    Ritorna
-    -------
-    alpha     : passo accettato
-    n_back    : numero di riduzioni effettuate
-    """
-    g_dot_d = float(g @ d)   # tipicamente negativo per d = -g
-    alpha = alpha0
-    for k in range(max_iter):
-        if f(x + alpha * d) <= fx + c1 * alpha * g_dot_d:
-            return alpha, k
-        alpha *= rho
-    return alpha, max_iter
 
 
 def steepest_descent(f, grad_f, x0, stopping: StoppingCriterion,
@@ -76,17 +45,14 @@ def steepest_descent(f, grad_f, x0, stopping: StoppingCriterion,
         history.append({'x': x.copy(), 'f': fx,
                         'grad_norm': g_norm, 'alpha': None})
 
-    x_prev, fx_prev = x.copy(), fx
     success = False
     stop_reason = "max_iter"
     k = 0
 
+    # Loop ordering coerente con le slides del corso (Modified Newton):
+    # step -> check. I criteri 'change' hanno il guard k==0 -> False; per
+    # mantenerlo dormiente passiamo k+1 a should_stop dopo lo step.
     for k in range(max_iter):
-        if stopping.should_stop(k, x, fx, g, x_prev, fx_prev):
-            success = True
-            stop_reason = stopping.name
-            break
-
         d = -g
         alpha, _ = armijo_backtracking(f, x, fx, g, d,
                                        alpha0=alpha0, c1=c1, rho=rho)
@@ -100,6 +66,11 @@ def steepest_descent(f, grad_f, x0, stopping: StoppingCriterion,
         if return_history:
             history.append({'x': x.copy(), 'f': fx,
                             'grad_norm': g_norm, 'alpha': alpha})
+
+        if stopping.should_stop(k + 1, x, fx, g, x_prev, fx_prev):
+            success = True
+            stop_reason = stopping.name
+            break
 
     result = {
         'x_star': x,

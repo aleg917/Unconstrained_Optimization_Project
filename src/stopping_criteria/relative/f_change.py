@@ -2,7 +2,7 @@
 
 Normalizzata sul valore CORRENTE di F (non su F_0): assumiamo di non
 conoscere F all'inizio del run. Il `max(..., 1)` evita la divisione per
-zero quando F si avvicina a 0 (es. Problem 32).
+zero quando F si avvicina a 0 (es. problemi sum-of-squares come Problem 28).
 """
 from ..base import StoppingCriterion
 

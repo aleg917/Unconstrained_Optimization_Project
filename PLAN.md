@@ -23,20 +23,32 @@ con `x₀ = x_{n+1} = 0` (condizioni al bordo fisse) e **punto iniziale** `x̄�
 - Bordo j=1: `∂F/∂x₁ = sin(x₁) + 2·cos(x₁)`
 - Bordo j=n: `∂F/∂xₙ = n·sin(xₙ) - (n-1)·cos(xₙ)`
 
-### Funzione 2 — Problem 32: Generalized Broyden Tridiagonal
-**Perché**: struttura sum-of-squares (F_min = 0), gradiente sparso tridiagonale, ben contrastante con Prob.16.
+### Funzione 2 — Problem 28: Variably Dimensioned
+**Perché**: classico Moré-Garbow-Hillström; sum-of-squares (F_min = 0 a x*=(1,...,1)); **Hessiana piena** (rank-1 update di I), in **contrasto netto** con la banded di Prob.16.
 
 ```
-F(x) = ½ Σₖ₌₁ⁿ  fₖ(x)²
-fₖ(x) = (3 - 2xₖ)·xₖ + 1 - xₖ₋₁ - xₖ₊₁
+F(x) = ½ Σₖ₌₁ⁿ⁺² fₖ(x)²
+fₖ(x) = xₖ - 1,                       1 ≤ k ≤ n
+fₙ₊₁(x) = Σᵢ₌₁ⁿ i (xᵢ - 1)             ≡ S(x)
+fₙ₊₂(x) = S(x)²
 ```
-con `x₀ = x_{n+1} = 0` e **punto iniziale** `x̄ₗ = -1` per ogni l.
+**Punto iniziale**: `x̄ₗ = 1 - l/n` per `l = 1, ..., n`.
 
-**Gradiente esatto** (tramite regola della catena su somma di quadrati):
+Posto `S := Σᵢ i (xᵢ - 1)`, si semplifica:
 ```
-∂F/∂xⱼ = fⱼ·(3 - 4xⱼ) - fⱼ₋₁ - fⱼ₊₁
+F(x) = ½ [ Σₖ (xₖ - 1)² + S² + S⁴ ]
 ```
-dove `fⱼ₋₁ = 0` se j=1, `fⱼ₊₁ = 0` se j=n.
+
+**Gradiente esatto** (O(n) dopo una sola sweep per S):
+```
+∂F/∂xⱼ = (xⱼ - 1) + j · S · (1 + 2 S²)
+```
+
+**Hessiana** (per la relazione, non serve nel metodo):
+```
+∂²F/∂xᵢ∂xⱼ = δᵢⱼ + i j (1 + 6 S²)
+H = I + (1 + 6 S²) · jvec · jvecᵀ,  jvec = (1, ..., n)ᵀ
+```
 
 ---
 
@@ -46,12 +58,14 @@ L'analisi analitica del caso n=2 (vedi `report_notes.md` §2.4 e §3.4) rivela d
 
 - **Problem 16**: per n=2 la funzione è **separabile**, i minimi locali sono **tutti globali** (stesso valore F* = 3 - 2√5) e formano un reticolo periodico di passo 2π. I bacini di attrazione sono simmetrici per traslazione: la *qualità* del minimo raggiunto non dipende dal punto iniziale.
 
-- **Problem 32**: la condizione F = 0 (somma di quadrati nulla) ammette **4 zeri distinti** in ℝ² (2 sulla diagonale + 2 off-diagonale, dalle radici di `(2u² - 2u - 1)(2u² - 4u + 1) = 0`). I 4 bacini di attrazione **non sono** legati da simmetria → punti iniziali diversi conducono a minimi globali diversi.
+- **Problem 28**: F è **convessa** (somma di norme quadratiche e di S², S⁴ con S lineare in x), quindi il minimo globale è **unico** a x* = (1, 1). La narrativa si sposta dalla *molteplicità di bacini* (P16) alla **struttura della curvatura**:
+  - Per n=2: `H = [[1+(1+6S²), 2(1+6S²)], [2(1+6S²), 1+4(1+6S²)]]`. A x* (S=0) → H = I + jjᵀ con jvec=(1,2), autovalori ~ {0.83, 6.17} → condition number ~7.4. Per n=10⁵ a x* il condition number cresce come ~n³/3 (autovalore massimo di jvecᵀjvec/||jvec||² nella direzione jvec).
+  - Lontano da x* (es. x̄): `S(x̄) = -Σl²/n² ≈ -n/3`, quindi `S² ≈ n²/9`, `S⁴ ≈ n⁴/81` → l'Hessiana ha autovalore *enorme* lungo jvec e ~1 in tutte le altre direzioni → terreno classico in cui lo **steepest descent zig-zaga molto**.
 
 **Implicazioni per il setup sperimentale**:
-- Per Problem 32, n=2: oltre alle metriche standard, **classificare ciascun run** in base al bacino raggiunto (A, B, C, D). È materiale narrativo forte per il report.
-- Per n > 2: la separabilità (P16) si rompe e il numero di zeri di P32 cresce → ci si aspetta più variabilità tra punti iniziali random in entrambi i problemi.
-- Per il top-view a n=2: usare **`LogNorm`** sul colormap di P32 (la funzione cresce ~x⁴, le valli a F→0 spariscono in scala lineare) e clipping di Z per il 3D.
+- Per Problem 28, n=2: top-view con `LogNorm` (F cresce come S⁴, valli a F→0 sparirebbero in scala lineare); evidenziare nel report l'ellitticità delle curve di livello (in contrasto con i bacini multipli di una P32-like).
+- A n grandi (10⁴, 10⁵): `F(x̄)` cresce come ~n⁸, `‖∇F(x̄)‖` come ~n⁵-n⁶. Backtracking di Armijo deve scegliere α iniziale piccolo (oppure rho aggressivo) per evitare overflow nei primi step. Materiale narrativo: discutere il fallimento di `α₀ = 1` standard e la sintonizzazione di α₀ e ρ.
+- Convergenza di steepest descent attesa **lineare** (problema convesso ben definito) ma con costante vicina a 1 per n grande → molte iterazioni. Confronto con P16 (Hessiana banded, ben condizionata localmente) sarà istruttivo.
 
 ---
 
@@ -144,10 +158,10 @@ Unconstrained_Optimization_Project/
 ├── src/
 │   ├── functions/                  ← solo F(x) e punti iniziali suggeriti
 │   │   ├── problem16.py            → f16, x_bar_16
-│   │   └── problem32.py            → f32, x_bar_32
+│   │   └── problem28.py            → f28, x_bar_28
 │   ├── gradients/                  ← problem-specific (esatti) + generico (FD)
 │   │   ├── problem16.py            → grad_f16  (esatto)
-│   │   ├── problem32.py            → grad_f32  (esatto)
+│   │   ├── problem28.py            → grad_f28  (esatto)
 │   │   └── finite_diff.py          → grad_fd_forward(f, x, k, scaled)
 │   ├── stopping_criteria/          ← strategie plug-in di arresto
 │   │   ├── base.py                 → StoppingCriterion (classe base)
