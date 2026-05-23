@@ -5,11 +5,14 @@ f_k(x) = x_k - 1,                          1 <= k <= n
 f_{n+1}(x) = sum_{i=1..n} i (x_i - 1)
 f_{n+2}(x) = ( sum_{i=1..n} i (x_i - 1) )^2
 
-Posto S(x) := sum_{i=1..n} i (x_i - 1):
-    F(x) = 1/2 [ sum_k (x_k - 1)^2 + S^2 + S^4 ].
+Per non riscrivere tre volte la stessa somma pesata, introduciamo
+l'abbreviazione di scrittura
+    S(x) := sum_{i=1..n} i (x_i - 1),
+così che
+    F(x) = 1/2 [ sum_k (x_k - 1)^2 + S(x)^2 + S(x)^4 ].
 
-Hessiana piena: H_{ij} = delta_{ij} + i j (1 + 6 S^2)  (rank-1 update di I).
-Minimo globale: x* = (1, ..., 1) con F* = 0.
+Minimo globale: x* = (1, ..., 1) con F* = 0 (in x* si annullano sia
+i residui x_k - 1 sia la combinazione S).
 """
 import numpy as np
 

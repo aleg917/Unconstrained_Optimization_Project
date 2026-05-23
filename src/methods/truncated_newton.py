@@ -75,7 +75,9 @@ def _cg_truncated(H, b, eta_k, cg_max_iter):
 
     Parametri
     ---------
-    H            : ndarray (n, n), Hessiana corrente (simmetrica)
+    H            : ndarray (n, n) OPPURE callable d -> Hd. Permette la
+                   versione matrix-free (FD del gradiente) senza materializzare
+                   l'Hessiana, indispensabile per n >> 10^4.
     b            : ndarray (n,),  = -grad f(x_k) = c_k
     eta_k        : float in (0,1), tolleranza relativa per il residuo CG
     cg_max_iter  : int, numero massimo di iterazioni interne
@@ -86,6 +88,7 @@ def _cg_truncated(H, b, eta_k, cg_max_iter):
     j            : int,           numero di iterazioni CG effettuate
     termination  : str,           uno tra "tol" | "negcurv_j0" | "negcurv_jpos" | "maxiter"
     """
+    apply_H = H if callable(H) else H.__matmul__
     n = b.size
     z = np.zeros(n)
     r = b.copy()              # r_0 = b - H z_0 = b
@@ -97,7 +100,7 @@ def _cg_truncated(H, b, eta_k, cg_max_iter):
         return z, 0, "tol"   # gradiente nullo: gia' al minimo
 
     for j in range(cg_max_iter):
-        Hd = H @ d
+        Hd = apply_H(d)
         dHd = float(d @ Hd)
         if dHd <= 0.0:
             if j == 0:
@@ -121,11 +124,13 @@ def _cg_truncated(H, b, eta_k, cg_max_iter):
     return z, cg_max_iter, "maxiter"
 
 
-def truncated_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
+def truncated_newton(f, grad_f, hess_f=None, x0=None,
+                     stopping: StoppingCriterion = None,
                      alpha0=1.0, c1=1e-4, rho=0.5,
                      forcing="superlinear", eta_fixed=0.5,
                      cg_max_iter=None,
-                     max_iter=1000, return_history=False):
+                     max_iter=1000, return_history=False,
+                     hv_func=None):
     """Truncated Newton / Linesearch Newton-CG (slides NO4LSP) + Armijo.
 
     Loop ordering identico alle slides e a modified_newton: step (2.1-2.3)
@@ -134,7 +139,10 @@ def truncated_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
 
     Parametri
     ---------
-    f, grad_f, hess_f : F, gradiente, Hessiana (callables x -> ...)
+    f, grad_f         : F, gradiente (callables x -> ...).
+    hess_f            : Hessiana callable x -> H(x). Necessario se hv_func
+                        e' None. Se sia hess_f sia hv_func sono forniti,
+                        hv_func ha precedenza (ramo matrix-free).
     x0                : punto iniziale, ndarray (n,)
     stopping          : istanza di StoppingCriterion
     alpha0, c1, rho   : parametri della line search di Armijo (outer step)
@@ -148,6 +156,12 @@ def truncated_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
                         (dimensione del problema; classico in aritmetica esatta).
     max_iter          : numero massimo di iterazioni esterne.
     return_history    : se True, memorizza la traiettoria (utile per n=2).
+    hv_func           : callable (x, v) -> H(x) @ v. Ramo matrix-free:
+                        la CG interna riceve una closure  d -> hv_func(x, d)
+                        e non assembla mai l'Hessiana. Tipicamente
+                        hv_func = lambda x, v: hv_fd(grad_f, x, v, k=8).
+                        Necessario per n grande (10^4, 10^5) su problemi
+                        con Hessiana densa.
 
     Ritorna
     -------
@@ -157,6 +171,11 @@ def truncated_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
         [history]: lista di dict {x, f, grad_norm, alpha, p_norm,
                                   cg_iters, nu_k, cg_termination}.
     """
+    if hv_func is None and hess_f is None:
+        raise ValueError("truncated_newton requires either hess_f or hv_func")
+    if x0 is None or stopping is None:
+        raise ValueError("truncated_newton requires x0 and stopping")
+
     x = np.asarray(x0, dtype=float).copy()
     n = x.size
     if cg_max_iter is None:
@@ -184,10 +203,15 @@ def truncated_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
 
     for k in range(max_iter):
         # 2.1-2.2: setup e inner CG per  B_k z = c_k
-        H = hess_f(x)
+        # Ramo matrix-free se hv_func e' fornito; altrimenti assembla H.
+        if hv_func is not None:
+            x_k = x  # snapshot del punto corrente per la closure
+            apply_H = lambda d: hv_func(x_k, d)
+        else:
+            apply_H = hess_f(x)
         b = -g
         eta_k = _compute_eta(forcing, eta_fixed, g_norm)
-        p, cg_j, cg_term = _cg_truncated(H, b, eta_k, cg_max_iter)
+        p, cg_j, cg_term = _cg_truncated(apply_H, b, eta_k, cg_max_iter)
         cg_iters_total += cg_j
         if cg_term.startswith("negcurv"):
             neg_curv_count += 1

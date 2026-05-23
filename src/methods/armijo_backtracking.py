@@ -15,7 +15,7 @@ def armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5,
     g         : gradiente in x, ndarray (n,)
     d         : direzione di discesa, ndarray (n,)  (di solito -g)
     alpha0    : passo iniziale (default 1, "Newton step")
-    c1        : costante di Armijo, in (0, 1/2)
+    c1        : costante di Armijo, in (0, 1/2) # NOTE: COGLIONE NELLE SLIDES C'è scritto c_1 va da (0, 1)
     rho       : fattore di riduzione, in (0, 1)
     max_iter  : numero massimo di backtrack
 
