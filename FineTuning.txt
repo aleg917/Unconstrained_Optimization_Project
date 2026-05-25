@@ -1,12 +1,12 @@
-L'idea è di creare un nuovo notebook per fare finetuning, separatamente dal main, dove effetuiamo una grid search per cercare
-il migliori parametri in base a dei punti
+    L'idea è di creare un nuovo notebook per fare finetuning, separatamente dal main, dove effetuiamo una grid search per cercare
+il migliori parametri in base a dei punteggi
 
 - Creare notebook fine_tuning.ipynb
 
 Il foglio di assignment @N04LSP_Assignments_2526.pdf, nel punto due dice:
 
 - Set a random seed equal to the minimum student ID of the team members. Noi siamo due team members
-seed = min([346165, l'altro non lo conosco])
+seed = min([346165, 323334])
 - Study the problem for these values of dimensions: n=2, 10^3, 10^4, 10^5
 - use x_0 as a starting point where the starting point is suggested by the porblem specification in @V897-03.pdf .
 Then, use 5 enw starting points randomly generated with uniform distribution in a hyper-cube 
@@ -62,3 +62,192 @@ max_iter del metodo.
 	p.s questo parametro influenza la proporzione di inner/outer iterazioni, sappiamo come e vogliamo verificarlo
 - iterazioni del conjugate gradient (inner iter)
 - iterazioni del truncated (outer iter)
+
+Inoltre, volgiamo usare codice il più python friendly possibile, per esemprio iterando su degli insiemi (set), all'interno di una lista. Cosi che gli insiemi sono prodotti di insiemi you get me? tipo itertool bisognava usare?
+
+
+Prendi ispirazione da questo codice, proponi suggerimemti, e formattiamolo in modo da tale da farlo vivenere in un notebook interativo così anche i professori possono usarlo per riprodurre i nostri risultati, o come tool per il loro laboratorio ipoteticamente.
+
+import numpy as np
+import time
+from sklearn.model_selection import ParameterGrid
+
+from modified_newton import modified_newton
+from truncated_newton import truncated_newton
+from starting_points import generate_starting_points
+
+from problem16 import f16, grad_f16, hess_f16, x0_16
+from problem28 import f28, grad_f28, hess_f28, x0_28
+
+# ─────────────────────────────────────────
+# GRIGLIE DEI PARAMETRI
+# ─────────────────────────────────────────
+
+param_grid_mn = {
+    'c1':                [1e-4, 1e-3],
+    'rho':               [0.5, 0.8],
+    'beta':              [1e-6, 1e-3],
+    'max_tau_iter':      [50, 100],
+    'max_iter_backtrack':[30, 50],
+}
+
+param_grid_tn = {
+    'c1':                [1e-4, 1e-3],
+    'rho':               [0.5, 0.8],
+    'forcing':           ['superlinear', 'quadratic'],
+    'cg_max_iter':       [None, 50],   # None = usa n (valore teorico standard)
+    'max_iter_backtrack':[30, 50],
+}
+
+DIMENSIONS = [2, 100]       # aggiungi 1000, 10000 quando tutto gira
+TOL_GRAD   = 1e-6
+MAX_ITER   = 500
+NUM_RANDOM = 5
+SEED       = 12345          # minimo student-ID del team
+
+problems = [
+    ('Problem16', f16, grad_f16, hess_f16, x0_16),
+    ('Problem28', f28, grad_f28, hess_f28, x0_28),
+]
+
+# ─────────────────────────────────────────
+# PRE-GENERA GLI STARTING POINTS
+# una volta sola, fuori da tutto
+# ─────────────────────────────────────────
+
+def build_starting_points(problems, dimensions, num_random, seed):
+    """
+    Genera e salva i 6 starting points per ogni (problema, n).
+    Ritorna un dizionario:  (prob_name, n) -> lista di 6 array
+    """
+    rng = np.random.default_rng(seed)
+    starting_points = {}
+
+    for prob_name, f, grad_f, hess_f, x0_fn in problems:
+        for n in dimensions:
+            x_bar = x0_fn(n)
+            pts = generate_starting_points(x_bar, num_random=num_random, rng=rng)
+            starting_points[(prob_name, n)] = pts
+
+    return starting_points
+
+# ─────────────────────────────────────────
+# FUNZIONE CHE ESEGUE UN SINGOLO TEST
+# ─────────────────────────────────────────
+
+def run_all_tests(algo_func, params, problems, dimensions,
+                  starting_points_dict, tol_grad, max_iter):
+    """
+    Lancia algo_func su tutte le combinazioni (problema, n, starting point).
+    Usa gli starting points pre-generati in starting_points_dict.
+
+    Ritorna:
+        success_rate : frazione di run convergenti
+        avg_iter     : media iterazioni sulle run convergenti
+        avg_time     : media tempo (secondi) sulle run convergenti
+    """
+    total_runs    = 0
+    total_success = 0
+    iter_list     = []
+    time_list     = []
+
+    for prob_name, f, grad_f, hess_f, x0_fn in problems:
+        for n in dimensions:
+
+            pts = starting_points_dict[(prob_name, n)]
+
+            for sp_idx, x0 in enumerate(pts):
+                try:
+                    t_start = time.time()
+                    result = algo_func(
+                        f, grad_f, hess_f, x0,
+                        tol_grad=tol_grad,
+                        max_iter=max_iter,
+                        **params
+                    )
+                    t_end = time.time()
+
+                    converged = result['success']
+                    n_iter    = result['n_iter']
+                    elapsed   = t_end - t_start
+
+                except Exception as e:
+                    print(f"  ERRORE: {prob_name}, n={n}, sp={sp_idx}: {e}")
+                    converged = False
+                    n_iter    = max_iter
+                    elapsed   = np.nan
+
+                total_runs += 1
+                if converged:
+                    total_success += 1
+                    iter_list.append(n_iter)
+                    time_list.append(elapsed)
+
+    success_rate = total_success / total_runs
+    avg_iter     = np.mean(iter_list) if len(iter_list) > 0 else np.inf
+    avg_time     = np.mean(time_list) if len(time_list) > 0 else np.nan
+
+    return success_rate, avg_iter, avg_time
+
+# ─────────────────────────────────────────
+# GRID SEARCH
+# ─────────────────────────────────────────
+
+def grid_search(algo_func, param_grid, algo_name, starting_points_dict):
+    """
+    Esegue la grid search per un algoritmo.
+    Stampa i risultati e restituisce il set di parametri migliore.
+    """
+    print(f"\n{'='*60}")
+    print(f"  Grid search: {algo_name}")
+    print(f"{'='*60}")
+
+    all_results = []
+
+    for params in ParameterGrid(param_grid):
+
+        success_rate, avg_iter, avg_time = run_all_tests(
+            algo_func, params, problems, DIMENSIONS,
+            starting_points_dict, TOL_GRAD, MAX_ITER
+        )
+
+        all_results.append({
+            'params':       params,
+            'success_rate': success_rate,
+            'avg_iter':     avg_iter,
+            'avg_time':     avg_time,
+        })
+
+        print(f"  {params}")
+        print(f"    -> success: {success_rate:.2f} | "
+              f"avg_iter: {avg_iter:.1f} | avg_time: {avg_time:.3f}s")
+
+    # ordina: prima success_rate decrescente, poi avg_iter crescente
+    all_results.sort(key=lambda r: (-r['success_rate'], r['avg_iter']))
+
+    best = all_results[0]
+    print(f"\n  BEST: {best['params']}")
+    print(f"  success: {best['success_rate']:.2%} | "
+          f"avg_iter: {best['avg_iter']:.1f} | avg_time: {best['avg_time']:.3f}s")
+
+    return best, all_results
+
+# ─────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────
+
+if __name__ == '__main__':
+
+    # genera gli starting points una volta sola
+    sp_dict = build_starting_points(problems, DIMENSIONS, NUM_RANDOM, SEED)
+
+    best_mn, results_mn = grid_search(modified_newton,  param_grid_mn,
+                                      'Modified Newton',  sp_dict)
+    best_tn, results_tn = grid_search(truncated_newton, param_grid_tn,
+                                      'Truncated Newton', sp_dict)
+
+    print("\n\n" + "="*60)
+    print("PARAMETRI FINALI SCELTI")
+    print("="*60)
+    print(f"Modified Newton:  {best_mn['params']}")
+    print(f"Truncated Newton: {best_tn['params']}")

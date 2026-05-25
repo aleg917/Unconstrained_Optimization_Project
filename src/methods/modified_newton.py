@@ -85,7 +85,8 @@ def _modify_hessian_cholesky(H, beta=1e-3, max_iter=100):
 def modified_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
                     alpha0=1.0, c1=1e-4, rho=0.5,
                     beta=1e-3, max_tau_iter=100,
-                    max_iter=1000, return_history=False):
+                    max_iter=1000, max_iter_backtrack=50,
+                    return_history=False):
     """Modified Newton (slides NO4LSP) + Armijo backtracking.
 
     Loop ordering identico alle slides: step (2.1-2.3) -> check (2.4).
@@ -140,7 +141,8 @@ def modified_newton(f, grad_f, hess_f, x0, stopping: StoppingCriterion,
 
         # 2.3: backtracking + Armijo, poi update
         alpha, _ = armijo_backtracking(f, x, fx, g, p,
-                                       alpha0=alpha0, c1=c1, rho=rho)
+                                       alpha0=alpha0, c1=c1, rho=rho,
+                                       max_iter=max_iter_backtrack)
         x_prev, fx_prev = x.copy(), fx
         x = x + alpha * p
         fx = f(x)
