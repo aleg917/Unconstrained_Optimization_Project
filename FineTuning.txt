@@ -1,0 +1,64 @@
+L'idea è di creare un nuovo notebook per fare finetuning, separatamente dal main, dove effetuiamo una grid search per cercare
+il migliori parametri in base a dei punti
+
+- Creare notebook fine_tuning.ipynb
+
+Il foglio di assignment @N04LSP_Assignments_2526.pdf, nel punto due dice:
+
+- Set a random seed equal to the minimum student ID of the team members. Noi siamo due team members
+seed = min([346165, l'altro non lo conosco])
+- Study the problem for these values of dimensions: n=2, 10^3, 10^4, 10^5
+- use x_0 as a starting point where the starting point is suggested by the porblem specification in @V897-03.pdf .
+Then, use 5 enw starting points randomly generated with uniform distribution in a hyper-cube 
+
+Before introducing the parameters subject to grid search, let's disuss the layers of aggregation for the results
+The assignment 2 point 2.1.2 discusses Concerning any possible parameter of the methods implemented (e.g., Back-tracking
+parameters, forcing terms, stopping criteria, etc.), tune it and discuss/motivate
+your choice.
+
+Now me and my colleague agree on this terms:
+- Each method should have its own set of finetuned parameters.
+- Aggregation should be done at points level. Use all the points for averaging the results to obtain the mean and standard deviation.
+- We are not sure whether we should aggregate at dimensional level. Should we treat the dimension as having a set of parameters different or should the
+performance be avareged around them? I think the second suits the most but I'm not sure give me your opinion. 
+- we agree that the finite differences approximation variants should be kept out of this study since they are also introduced later in the assignment.
+
+Als, we should discuss which metric to use to decide the best set of parameter for the supported granularity of aggregation.
+Indeed, we need to produce numerical tables and plots that are visualisable in the notebook. As you can see, the majority of the tables required for the final report are 
+introduced later on the assignment file. I'm thinking of producing these plots now aswell in the fine_tuning notebook, so that these codes are already available for the next task.
+
+1. Armijo backtracking
+
+- \alpha_0 = 1 (fixato e spiegato nella lezione per quale motivo).
+- c_1 \in (0, 1) (tipicamente c_1 = 10^-4) (possiamo testare n valori su scala logaritmica? 10^-5, 10^-4 ...)
+- \rho \in (\rho_L, \rho_U) dove 0<\roh_L<\roh_U<1
+- max_iter
+
+CONDIZIONE: \roh^T * alpha_0^(k) >= epsilon che è minimum step-length dove sappiamo che per \rho = 1/2 T è uguale a 50.
+
+2. Stopping Criteria
+
+- Absolute or Relative
+	- f_change
+	- grad_nomr
+	- x_change
+
+INOLTRE aggiungiamo un setting dove possiamo combinare i stopping criteria
+
+
+3. Modified Newton
+Dentro la funzione di Hessian Cholesky
+	- beta: tipicamente 10^-3
+	- max_tau_iter
+
+max_iter del metodo.
+
+4. Truncated newton
+
+- ETA:
+	- linear
+	- superlinear
+	- quadratcic
+	p.s questo parametro influenza la proporzione di inner/outer iterazioni, sappiamo come e vogliamo verificarlo
+- iterazioni del conjugate gradient (inner iter)
+- iterazioni del truncated (outer iter)
