@@ -36,7 +36,8 @@ from ..stopping_criteria.base import StoppingCriterion
 from .armijo_backtracking import armijo_backtracking
 
 
-def _modify_hessian_cholesky(H, beta=1e-3, max_iter=100):
+def _modify_hessian_cholesky(H, beta=1e-3, max_iter=100,
+                             t_start=None, time_limit=None):
     """Build B_k via Cholesky with added multiple of identity
     (cf. Nocedal-Wright Alg. 6.3 / 3.3, course slides).
 
@@ -58,6 +59,8 @@ def _modify_hessian_cholesky(H, beta=1e-3, max_iter=100):
     H        : ndarray (n, n) or scipy.sparse matrix (Hessian)
     beta     : heuristic parameter, typical value 1e-3 (see slides)
     max_iter : maximum number of tau doublings
+    t_start    : reference time from time.perf_counter()
+    time_limit : wall-clock budget in seconds (None = unlimited)
 
     Returns
     -------
@@ -68,8 +71,11 @@ def _modify_hessian_cholesky(H, beta=1e-3, max_iter=100):
 
     Raises
     ------
+    TimeLimitExceeded if the wall-clock budget is exceeded.
     RuntimeError if no tau within max_iter makes H + tau*I pos. def.
     """
+    _check = (t_start is not None and time_limit is not None)
+
     # --- fast path: sparse (diagonal) Hessian ---
     if sp.issparse(H):
         diag_h = np.asarray(H.diagonal(), dtype=float)
@@ -94,6 +100,8 @@ def _modify_hessian_cholesky(H, beta=1e-3, max_iter=100):
     n = H.shape[0]
     I = np.eye(n)
     for j in range(max_iter):
+        if _check and (time.perf_counter() - t_start) > time_limit:
+            raise TimeLimitExceeded()
         try:
             R = sla.cholesky(H + tau * I, lower=False)
             return R, tau, j
@@ -179,6 +187,10 @@ def modified_newton(f, x0, stopping,
         g = grad_f(x)
         g_norm = float(np.linalg.norm(g))
 
+        if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
+            stop_reason = "time_limit"
+            raise TimeLimitExceeded()
+
         stopping.initialize(x, fx, g)
 
         if return_history:
@@ -193,7 +205,9 @@ def modified_newton(f, x0, stopping,
             # 2.1: build B_k via Cholesky with regularization
             H = hess_f(x)
             R_or_diag, tau, n_adj = _modify_hessian_cholesky(H, beta=beta,
-                                                              max_iter=max_tau_iter)
+                                                              max_iter=max_tau_iter,
+                                                              t_start=t_start,
+                                                              time_limit=time_limit)
             n_chol_total += n_adj
 
             # 2.2: solve  B_k p_MN = -g
@@ -216,6 +230,10 @@ def modified_newton(f, x0, stopping,
             fx = f(x)
             g = grad_f(x)
             g_norm = float(np.linalg.norm(g))
+
+            if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
+                stop_reason = "time_limit"
+                break
 
             if return_history:
                 history.append({'x': x.copy(), 'f': fx, 'grad_norm': g_norm,

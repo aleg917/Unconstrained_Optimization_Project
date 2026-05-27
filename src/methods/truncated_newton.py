@@ -225,6 +225,10 @@ def truncated_newton(f, x0, stopping,
         g = grad_f(x)
         g_norm = float(np.linalg.norm(g))
 
+        if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
+            stop_reason = "time_limit"
+            raise TimeLimitExceeded()
+
         stopping.initialize(x, fx, g)
 
         if return_history:
@@ -279,6 +283,10 @@ def truncated_newton(f, x0, stopping,
             fx = f(x)
             g = grad_f(x)
             g_norm = float(np.linalg.norm(g))
+
+            if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
+                stop_reason = "time_limit"
+                break
 
             if return_history:
                 history.append({'x': x.copy(), 'f': fx, 'grad_norm': g_norm,
