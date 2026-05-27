@@ -1,23 +1,23 @@
-"""Gradiente esatto del Problem 28 (Variably Dimensioned)."""
+"""Exact gradient of Problem 28 (Variably Dimensioned)."""
 import numpy as np
 
 
 def grad_f28(x):
-    """Gradiente esatto del Variably Dimensioned function.
+    """Exact gradient of the Variably Dimensioned function.
 
-    Partendo da
+    Starting from
         F(x) = 1/2 [ sum_k (x_k - 1)^2 + S(x)^2 + S(x)^4 ],
         S(x) = sum_{i=1..n} i (x_i - 1),
-    deriviamo rispetto a x_j (1 <= j <= n) un addendo per volta:
+    we differentiate with respect to x_j (1 <= j <= n) term by term:
         d/dx_j [ 1/2 sum_k (x_k - 1)^2 ] = (x_j - 1)
         d/dx_j [ 1/2 S^2 ]               = S * (dS/dx_j) = j * S
         d/dx_j [ 1/2 S^4 ]               = 2 S^3 * (dS/dx_j) = 2 j S^3
-    sommando:
+    summing up:
         dF/dx_j = (x_j - 1) + j S + 2 j S^3
                 = (x_j - 1) + j S (1 + 2 S^2).
 
-    Il calcolo richiede una sola scansione del vettore: si valuta S in
-    O(n) e poi si forma il gradiente con un'altra passata O(n).
+    The computation requires a single pass to evaluate S in O(n), then
+    another O(n) pass to form the gradient vector.
     """
     x = np.asarray(x, dtype=float)
     n = len(x)

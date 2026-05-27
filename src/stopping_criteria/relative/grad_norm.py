@@ -1,7 +1,7 @@
-"""||grad F(x_k)|| / ||grad F(x_0)|| <= tol  (forma relativa).
+"""||grad F(x_k)|| / ||grad F(x_0)|| <= tol  (relative form).
 
-Indipendente dalla scala di F: se F viene moltiplicata per una costante,
-sia il numeratore che il denominatore scalano allo stesso modo.
+Scale-independent: if F is multiplied by a constant, both the numerator
+and denominator scale identically.
 """
 import numpy as np
 
@@ -12,8 +12,9 @@ class GradNormRelative(StoppingCriterion):
     name = "grad_rel"
 
     def initialize(self, x0, F0, g0):
-        # Salva ||g_0|| per il denominatore. Il fallback a 1e-300 evita la
-        # divisione per zero nel caso patologico in cui x_0 sia gia' stazionario.
+        # Save ||g_0|| for the denominator.  The 1e-300 fallback avoids
+        # division by zero in the pathological case where x_0 is already
+        # stationary.
         self.g0_norm = max(float(np.linalg.norm(g0)), 1e-300)
 
     def should_stop(self, k, x, F, g, x_prev, F_prev) -> bool:

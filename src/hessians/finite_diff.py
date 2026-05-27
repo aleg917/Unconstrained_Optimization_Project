@@ -1,39 +1,41 @@
-"""Approssimazione della Hessiana via differenze finite del gradiente esatto.
+"""Hessian approximation via centered finite differences of the exact gradient.
 
-Implementa l'idea della slide del corso (NO4LSP):
+Implements the idea from the NO4LSP course slides:
     H_f(x) = J_{grad f}(x)
-quindi, avendo il gradiente esatto grad f, si applicano le formule di FD
-per la jacobiana di grad f. Centrato (O(h^2)) o forward (O(h)).
+Given the exact gradient grad f, we apply centered FD formulas to compute
+the Jacobian of grad f.  Centered stencil gives O(h^2) accuracy.
 
-Si impone simmetria  H <- (H + H^T) / 2  come indicato in slide.
+Symmetry is enforced via  H <- (H + H^T) / 2  as indicated in the slides.
 
-Tre routine:
+Three routines:
 
-    hess_fd       — assemblaggio colonna-per-colonna (n perturbazioni
-                    forward, 2n centrato). Baseline "general purpose"
-                    usato come riferimento di unit-test.
+    hess_fd       — column-by-column assembly (2n gradient evaluations).
+                    General-purpose baseline, used as unit-test reference.
 
-    hess_fd_diag  — caso CPR a 1 colore per Hessiana diagonale (Problema
-                    16). Una sola perturbazione lungo x ± h*1 estrae
-                    l'intera diagonale, indipendentemente da n.
+    hess_fd_diag  — CPR single-color case for diagonal Hessians (Problem 16).
+                    A single global perturbation along x +/- h*1 extracts the
+                    entire diagonal, independent of n.
 
-    hv_fd         — Hv matrix-free, per la CG interna del Truncated
-                    Newton. Una chiamata al gradiente per applicazione.
+    hv_fd         — matrix-free Hessian-vector product, used by the inner CG
+                    solver of Truncated Newton.  Two gradient calls per Hv.
 
-Per ciascuna routine il passo h ha due varianti (richieste dall'assignment):
+For each routine the step h has two variants (as required by the assignment):
     fixed:   h    = 10^{-k}
-    scaled:  h_i  = 10^{-k} * |x_i|  (con fallback se x_i = 0)
-con k in {4, 8, 12}.
+    scaled:  h_i  = 10^{-k} * |x_i|  (falls back to 10^{-k} when x_i = 0)
+with k in {4, 8, 12}.
 """
+import time
+
 import numpy as np
+
+from ..gradients.finite_diff import TimeLimitExceeded, _time_budget
 
 
 def _step(x, k, scaled):
-    """Vettore dei passi h_i per ciascuna direzione e_i.
+    """Per-component step vector h_i for each direction e_i.
 
     fixed   -> h_i = 10^{-k}
-    scaled  -> h_i = 10^{-k} * |x_i|  se x_i != 0, altrimenti 10^{-k}
-               (stessa convenzione di src/gradients/finite_diff.py).
+    scaled  -> h_i = 10^{-k} * |x_i|  if x_i != 0, else 10^{-k}
     """
     x = np.asarray(x, dtype=float)
     h_base = 10.0 ** (-k)
@@ -44,109 +46,93 @@ def _step(x, k, scaled):
     return h
 
 
-def hess_fd(grad_f, x, k=8, *, scaled=False, stencil="centered",
-            symmetrize=True):
-    """Approssima H(x) ~ J_{grad f}(x) colonna per colonna.
+def hess_fd(grad_f, x, k=8, *, scaled=False, symmetrize=True,
+            t_start=None, time_limit=None):
+    """Approximate H(x) ~ J_{grad f}(x) column by column (centered, O(h^2)).
 
-    Costo (chiamate a grad_f):
-        forward  : n + 1
-        centered : 2n
+    Cost: 2n gradient evaluations.
 
-    Parametri
-    ---------
+    Parameters
+    ----------
     grad_f     : callable, x -> grad f(x), ndarray (n,)
     x          : ndarray (n,)
-    k          : esponente del passo (h = 10^{-k})
-    scaled     : se True usa h_i = 10^{-k} * |x_i| (fallback se x_i=0)
-    stencil    : 'centered' (default, O(h^2)) o 'forward' (O(h))
-    symmetrize : se True restituisce (H + H^T) / 2
+    k          : step-size exponent (h = 10^{-k})
+    scaled     : if True, h_i = 10^{-k} * |x_i| (falls back when x_i = 0)
+    symmetrize : if True, returns (H + H^T) / 2
+    t_start    : float or None, reference time (time.perf_counter())
+    time_limit : float or None, wall-clock budget in seconds
 
-    Ritorna
+    Returns
     -------
     H : ndarray (n, n)
+
+    Raises
+    ------
+    TimeLimitExceeded if the wall-clock budget is exceeded.
     """
     x = np.asarray(x, dtype=float)
     n = x.size
     h = _step(x, k, scaled)
     H = np.empty((n, n), dtype=float)
+    _ts = t_start if t_start is not None else _time_budget[0]
+    _tl = time_limit if time_limit is not None else _time_budget[1]
+    _check_time = (_ts is not None and _tl is not None)
 
-    if stencil == "forward":
-        g0 = grad_f(x)
-        for j in range(n):
-            xp = x.copy()
-            xp[j] += h[j]
-            H[:, j] = (grad_f(xp) - g0) / h[j]
-    elif stencil == "centered":
-        for j in range(n):
-            xp = x.copy(); xp[j] += h[j]
-            xm = x.copy(); xm[j] -= h[j]
-            H[:, j] = (grad_f(xp) - grad_f(xm)) / (2.0 * h[j])
-    else:
-        raise ValueError(f"stencil must be 'forward' or 'centered', got {stencil!r}")
+    for j in range(n):
+        if _check_time and j % 100 == 0 and time.perf_counter() - _ts > _tl:
+            raise TimeLimitExceeded()
+        xp = x.copy(); xp[j] += h[j]
+        xm = x.copy(); xm[j] -= h[j]
+        H[:, j] = (grad_f(xp) - grad_f(xm)) / (2.0 * h[j])
 
     if symmetrize:
         H = 0.5 * (H + H.T)
     return H
 
 
-def hess_fd_diag(grad_f, x, k=8, *, scaled=False, stencil="centered"):
-    """CPR a 1 colore: Hessiana diagonale via UNA perturbazione globale.
+def hess_fd_diag(grad_f, x, k=8, *, scaled=False):
+    """CPR single-color: diagonal Hessian via ONE global perturbation.
 
-    Valido sotto l'assunzione (verificata in P16) che H sia diagonale,
-    cioe' che ogni componente g_j di grad f dipenda solo da x_j. In tale
-    caso, dalla espansione di Taylor:
+    Valid under the assumption (verified for Problem 16) that H is diagonal,
+    i.e. each gradient component g_j depends only on x_j.  In that case:
 
-        grad f(x + h_vec) - grad f(x - h_vec) ~ 2 * H * h_vec
-        => diag(H)[j] = (g_j(x + h_vec) - g_j(x - h_vec)) / (2 * h_vec[j])
+        diag(H)[j] = (g_j(x + h) - g_j(x - h)) / (2 h_j)
 
-    Costo (chiamate a grad_f):
-        forward  : 2  (ovvero 1 + 1 baseline)
-        centered : 2
-    INDIPENDENTEMENTE DA n.
+    Cost: 2 gradient evaluations, INDEPENDENT of n.
 
-    Ritorna
+    Returns
     -------
-    diag : ndarray (n,)  — diagonale di H (rappresentazione compatta)
+    diag : ndarray (n,) — the diagonal of H (compact representation)
     """
     x = np.asarray(x, dtype=float)
     h = _step(x, k, scaled)
-
-    if stencil == "forward":
-        g0 = grad_f(x)
-        gp = grad_f(x + h)
-        return (gp - g0) / h
-    if stencil == "centered":
-        gp = grad_f(x + h)
-        gm = grad_f(x - h)
-        return (gp - gm) / (2.0 * h)
-    raise ValueError(f"stencil must be 'forward' or 'centered', got {stencil!r}")
+    gp = grad_f(x + h)
+    gm = grad_f(x - h)
+    return (gp - gm) / (2.0 * h)
 
 
-def hv_fd(grad_f, x, v, k=8, *, scaled=False, stencil="centered"):
-    """Prodotto Hessiana-vettore matrix-free.
+def hv_fd(grad_f, x, v, k=8, *, scaled=False):
+    """Matrix-free Hessian-vector product (centered, O(h^2)).
 
-        H(x) v  ~  (grad f(x + h v) - grad f(x - h v)) / (2 h)   (centered)
-        H(x) v  ~  (grad f(x + h v) - grad f(x))       / h        (forward)
+        H(x) v  ~  (grad f(x + h v) - grad f(x - h v)) / (2 h)
 
-    Niente assemblaggio di H. Una/due chiamate a grad_f per Hv.
-    Usato dalla CG interna del Truncated Newton.
+    No matrix is ever assembled.  Two gradient calls per Hv application.
+    Used by the inner CG solver of Truncated Newton.
 
-    Sul passo h (scalare, non vettoriale, perche' la perturbazione e'
-    lungo una direzione v generica):
+    Step h (scalar, not per-component, because the perturbation is along
+    a generic direction v):
         fixed   -> h = 10^{-k}
-        scaled  -> h = 10^{-k} * max(||x||_inf, 1)   (riscalamento globale,
-                   evita problemi quando v ha norma molto diversa da 1)
+        scaled  -> h = 10^{-k} * max(||x||_inf, 1)   (global rescaling)
 
-    Parametri
-    ---------
+    Parameters
+    ----------
     grad_f  : callable, x -> grad f(x)
     x       : ndarray (n,)
-    v       : ndarray (n,) direzione
-    k       : esponente del passo
-    scaled  : variante riscalata sul punto x
-    stencil : 'centered' o 'forward'
+    v       : ndarray (n,), direction
+    k       : step-size exponent
+    scaled  : if True, rescale h by max(||x||_inf, 1)
 
-    Ritorna
+    Returns
     -------
     Hv : ndarray (n,)
     """
@@ -154,9 +140,4 @@ def hv_fd(grad_f, x, v, k=8, *, scaled=False, stencil="centered"):
     v = np.asarray(v, dtype=float)
     h_base = 10.0 ** (-k)
     h = h_base * max(np.max(np.abs(x)), 1.0) if scaled else h_base
-
-    if stencil == "forward":
-        return (grad_f(x + h * v) - grad_f(x)) / h
-    if stencil == "centered":
-        return (grad_f(x + h * v) - grad_f(x - h * v)) / (2.0 * h)
-    raise ValueError(f"stencil must be 'forward' or 'centered', got {stencil!r}")
+    return (grad_f(x + h * v) - grad_f(x - h * v)) / (2.0 * h)

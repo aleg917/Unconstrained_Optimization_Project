@@ -1,4 +1,4 @@
-"""Hessiane esatte e approssimazioni FD dei problemi di test."""
+"""Hessians — exact (problem-specific) and finite-difference approximations."""
 from .problem16 import hess_f16
 from .problem28 import hess_f28
 from .finite_diff import hess_fd, hess_fd_diag, hv_fd

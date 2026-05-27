@@ -1,8 +1,8 @@
-"""|F(x_k) - F(x_{k-1})| <= tol  (forma assoluta).
+"""|F(x_k) - F(x_{k-1})| <= tol  (absolute form).
 
-Diagnostica la stagnazione del valore di funzione: F non scende piu.
-Vicino a un minimo questo decresce come ~ alpha * ||g||^2 / 2 (Armijo),
-quindi richiede tolleranze tipicamente piu strette del gradiente.
+Detects function-value stagnation: F is no longer decreasing.
+Near a minimum this quantity decreases as ~ alpha * ||g||^2 / 2 (Armijo),
+so it typically requires tighter tolerances than the gradient criterion.
 """
 from ..base import StoppingCriterion
 

@@ -1,4 +1,4 @@
-"""Funzioni test (solo F(x) e punti iniziali suggeriti)."""
+"""Test functions (objective F(x) and suggested starting points)."""
 from .problem16 import f16, x_bar_16
 from .problem28 import f28, x_bar_28
 

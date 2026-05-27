@@ -1,44 +1,39 @@
-"""Pattern di sparsità (CPR / coloring) per le Hessiane dei problemi di test.
+"""Sparsity patterns (CPR / coloring) for the Hessians of the test problems.
 
-Riferimento: slide del corso NO4LSP sulla "GENERALIZATION OF THE SCHEME:
-COLORING GRAPHS". Costruito il grafo
+Reference: NO4LSP course slides on "GENERALIZATION OF THE SCHEME: COLORING
+GRAPHS".  Given the graph
     V = {x_1, ..., x_n},
-    {x_i, x_j} in E  <=>  esiste k tale che g_k dipende sia da x_i sia da x_j,
-le variabili dello stesso colore hanno supporti delle colonne H[:,j] disgiunti
-e possono essere perturbate insieme da un'unica chiamata al gradiente.
+    {x_i, x_j} in E  <=>  there exists k such that g_k depends on both x_i and x_j,
+variables of the same color have disjoint column supports in H and can be
+perturbed together in a single gradient call.
 
-Per i due problemi del nostro studio i pattern si ottengono per ispezione,
-quindi non serve un risolutore generale di coloring (cfr. PLAN.md sezione
-"Out of scope").
+For the two problems in our study the patterns follow by inspection, so
+no general coloring solver is needed.
 """
 
 
 def cpr_groups_p16(n):
-    """Problema 16 (Banded Trigonometric): Hessiana DIAGONALE.
+    """Problem 16 (Banded Trigonometric): DIAGONAL Hessian.
 
-    Ogni g_j dipende solo da x_j, dunque il grafo G non ha archi: un solo
-    colore basta. Tutte le variabili in un unico gruppo => UNA sola coppia
-    di chiamate al gradiente per estrarre l'intera diagonale (cfr.
-    hess_fd_diag), indipendentemente da n.
+    Each g_j depends only on x_j, so the graph G has no edges: a single
+    color suffices.  All variables go into one group => ONE pair of gradient
+    calls extracts the entire diagonal (cf. hess_fd_diag), regardless of n.
     """
     return [list(range(n))]
 
 
 def cpr_groups_p28(n):
-    """Problema 28 (Variably Dimensioned): Hessiana PIENA.
+    """Problem 28 (Variably Dimensioned): DENSE Hessian.
 
-    Ogni g_j dipende da TUTTE le x_i: il grafo di sparsita' e'
-    completo, servono n colori distinti e la coloring non produce
-    risparmio. Esposto qui per simmetria con P16 e per documentare
-    esplicitamente l'assenza di guadagno strutturale.
+    Each g_j depends on ALL x_i: the sparsity graph is complete, n distinct
+    colors are needed, and coloring produces no savings.  Exposed here for
+    symmetry with P16 and to document the absence of structural gains.
 
-    Riportato nel report: per questo problema le uniche ottimizzazioni
-    della FD-Hessiana sono quelle "general purpose":
-        - simmetrizzazione del risultato   (H_fd <- (H_fd + H_fd^T)/2)
-        - uso del gradiente analitico, O(n) per chiamata, anziche'
-          una FD sul valore di f, che costerebbe O(n^2)
-        - path matrix-free Hv per il Truncated Newton (un solo
-          gradiente per ogni prodotto Hv, senza materializzare la
-          matrice n x n).
+    For this problem the only FD-Hessian optimizations are "general purpose":
+        - symmetrization: H_fd <- (H_fd + H_fd^T) / 2
+        - use of the analytic gradient, O(n) per call, instead of FD on f
+          which would cost O(n^2)
+        - matrix-free Hv path for Truncated Newton (one gradient per Hv
+          product, without materializing the n x n matrix).
     """
     return [[j] for j in range(n)]

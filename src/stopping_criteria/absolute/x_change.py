@@ -1,7 +1,7 @@
-"""||x_k - x_{k-1}|| <= tol  (forma assoluta).
+"""||x_k - x_{k-1}|| <= tol  (absolute form).
 
-Diagnostica il collasso del passo: l'iterato non si muove piu, anche se il
-gradiente non e ancora piccolo. Vicino a un minimo decresce come ~ alpha * ||g||.
+Detects step collapse: the iterate is no longer moving, even if the
+gradient is not yet small.  Near a minimum this decreases as ~ alpha * ||g||.
 """
 import numpy as np
 

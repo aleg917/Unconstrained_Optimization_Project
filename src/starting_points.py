@@ -1,24 +1,23 @@
-"""Generazione dei punti iniziali per gli esperimenti.
+"""Starting point generation for experiments.
 
-Specifiche dall'assignment:
-    - 1 punto suggerito (x_bar) + 5 punti random uniformi in
-      [x_bar_i - 1, x_bar_i + 1] per ogni componente i.
-    - seed = minimo student-ID del team (impostato UNA VOLTA SOLA
-      prima di generare i punti per tutti i problemi/dimensioni,
-      per garantire la riproducibilita).
+Specification from the assignment:
+    - 1 suggested point (x_bar) + 5 random points sampled uniformly in
+      [x_bar_i - 1, x_bar_i + 1] for each component i.
+    - seed = minimum student-ID in the team (set ONCE before generating
+      the points for all problems/dimensions, to ensure reproducibility).
 """
 import numpy as np
 
 
 def generate_starting_points(x_bar, num_random=5, rng=None):
-    """Restituisce una lista di punti iniziali: [x_bar, x_bar + delta_1, ...].
+    """Return a list of starting points: [x_bar, x_bar + delta_1, ...].
 
-    Parametri
-    ---------
-    x_bar      : ndarray (n,) — punto suggerito
-    num_random : numero di punti random aggiuntivi (default 5)
-    rng        : numpy.random.Generator (opzionale).
-                 Se None usa np.random globale.
+    Parameters
+    ----------
+    x_bar      : ndarray (n,) — suggested starting point
+    num_random : number of additional random points (default 5)
+    rng        : numpy.random.Generator (optional).
+                 If None, uses the global np.random.
     """
     x_bar = np.asarray(x_bar, dtype=float)
     n = len(x_bar)

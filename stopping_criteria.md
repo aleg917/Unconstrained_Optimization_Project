@@ -1,141 +1,204 @@
-# Stopping criteria per Steepest Descent — analisi e scelta
-
-Apri questo file nel **preview Markdown** di VSCode (Ctrl+Shift+V) per vederlo formattato bene. Se lo apri come testo, è comunque leggibile.
+# Stopping Criteria — Analisi, Scelta e Trappole
 
 ---
 
-## 1. I tre criteri possibili
+## 1. I tre criteri
 
-Quando il loop di Steepest Descent decide se fermarsi, può guardare tre quantità:
+Un metodo iterativo di ottimizzazione puo fermarsi monitorando tre quantita:
 
-1. **Norma del gradiente**
-   $$\|\nabla F(x_k)\| \le \tau_g$$
-   "Sono arrivato in un punto stazionario."
+1. **Norma del gradiente** — condizione necessaria del primo ordine:
+   $$\|\nabla F(x^{(k)})\| \le \tau_g$$
+   "Sono in un punto stazionario."
 
-2. **Differenza dei valori di F (function progress)**
-   $$|F(x_{k+1}) - F(x_k)| \le \tau_f$$
-   "La funzione non scende più, sono fermo."
+2. **Differenza dei valori di F** — rileva stagnazione:
+   $$|F(x^{(k)}) - F(x^{(k-1)})| \le \tau_f$$
+   "La funzione non scende piu."
 
-3. **Differenza dei punti (iterate change)**
-   $$\|x_{k+1} - x_k\| \le \tau_x$$
-   "I miei spostamenti sono ormai trascurabili."
+3. **Differenza degli iterati** — rileva collasso del passo:
+   $$\|x^{(k)} - x^{(k-1)}\| \le \tau_x$$
+   "Non mi sto piu muovendo."
 
 A questi si aggiunge sempre `k >= max_iter` come fail-safe.
 
 ---
 
-## 2. Perché le tre tolleranze NON sono intercambiabili
+## 2. Perche le tolleranze NON sono intercambiabili
 
-Vicino a un minimo, lo Steepest Descent fa il passo
+Vicino a un minimo, con passo di tipo Newton e $\alpha \approx 1$:
 
-$$x_{k+1} - x_k = -\alpha_k \, g_k$$
+| Criterio | Scala rispetto a $\|\nabla F\|$ |
+|----------|----------------------------------|
+| $\|\nabla F\|$ | $\|\nabla F\|$ |
+| $\|x^{(k+1)} - x^{(k)}\|$ | $\approx \alpha \cdot \|\nabla F\| / \lambda_{\min}(H)$ |
+| $|F^{(k+1)} - F^{(k)}|$ | $\approx \|\nabla F\|^2$ (Taylor) |
 
-dove `α_k ∈ (0, 1]` è il passo di Armijo (tipicamente 0.5, 0.25, 0.125...).
-
-Da qui si ricavano le tre quantità di stop:
-
-| Criterio | Vale circa | In funzione di `||g||` |
-|----------|------------|-------------------------|
-| `||grad||` | `||g_k||` | **`||g||`** |
-| `||x_{k+1} - x_k||` | `α · ||g_k||` | **`α · ||g||`** |
-| `\|F_{k+1} - F_k\|` | `α · ||g_k||² / 2` (da Armijo) | **`α · ||g||² / 2`** |
+**Conseguenza**: $\tau_f \approx \tau_g^2$. Se $\tau_g = 10^{-6}$, serve $\tau_f = 10^{-12}$.
 
 ### Esempio numerico
 
-Supponi α ≈ 0.5 e usi la stessa tolleranza `τ = 10⁻⁶` per tutti e tre:
-
-- `||grad|| ≤ 10⁻⁶` → ti fermi a `||g|| ≈ 10⁻⁶` ✅
-- `||Δx|| ≤ 10⁻⁶` → ti fermi a `||g|| ≈ 2·10⁻⁶` ✅ (ordine simile)
-- `|ΔF| ≤ 10⁻⁶` → ti fermi a `||g|| ≈ √(2·10⁻⁶/α) ≈ **2·10⁻³**` ❌ **molto presto!**
-
-**Conclusione**: per ottenere precisioni paragonabili sulla stazionarietà,
-
-```
-τ_g   ≈ 10⁻⁶      (tolleranza sul gradiente)
-τ_x   ≈ 10⁻⁶      (stesso ordine di τ_g)
-τ_f   ≈ 10⁻¹²     (deve essere ~ τ_g², perché va come ||g||²)
-```
-
-Se tu usassi `τ_f = 10⁻⁶` ti fermeresti molto presto e diresti "convergente" quando non lo è.
+Con $\alpha \approx 0.5$ e $\tau = 10^{-6}$ uguale per tutti:
+- $\|\nabla F\| \le 10^{-6}$ : ti fermi a $\|\nabla F\| \approx 10^{-6}$ (OK)
+- $\|\Delta x\| \le 10^{-6}$ : ti fermi a $\|\nabla F\| \approx 2 \cdot 10^{-6}$ (OK, simile)
+- $|\Delta F| \le 10^{-6}$ : ti fermi a $\|\nabla F\| \approx 2 \cdot 10^{-3}$ (**troppo presto!**)
 
 ---
 
-## 3. Perché tenerli comunque tutti e tre (in OR)
+## 3. Perche servono tutti e tre (in OR)
 
-Anche se ridimensionati correttamente, i tre criteri **diagnosticano cose diverse** e non si sostituiscono uno all'altro.
+I criteri diagnosticano cose diverse:
 
-### 3.1 `||grad||`
-- È la vera condizione necessaria del primo ordine: in un minimo `∇F = 0`.
-- È quella "scientificamente corretta" da riportare nel paper.
-- **Difetto**: dipende dalla scala di F. Se moltiplichi F per 1000, anche il gradiente scala per 1000. Per questo si usa la versione **relativa** `||g_k|| / ||g_0||` ≤ τ_rel.
-
-### 3.2 `|ΔF|` — **rileva stagnazione**
-- Se F non scende più ma `||grad||` resta ancora "grande", siamo in una zona piatta o mal condizionata.
-- Tipico per SD: in valli strette, scendi a zig-zag e fai migliaia di iterazioni senza migliorare F.
-- Se non lo metti, il loop continua fino a `max_iter` per niente.
-
-### 3.3 `||Δx||` — **rileva collasso del passo**
-- Armijo può ridurre α a valori minuscoli (10⁻¹⁰ e oltre) se la line-search è in difficoltà.
-- Quando succede, ti muovi pochissimo anche se il gradiente non è piccolo.
-- Senza questo controllo si "gira a vuoto" sul posto.
-
-### 3.4 Cosa fare in pratica
-
-Combinarli in **OR**, ciascuno con la **propria tolleranza** della scala giusta. Quando il loop si ferma, salvare il *motivo*:
-
-```
-stop_reason ∈ { "grad_abs", "grad_rel", "f_change", "x_change", "max_iter" }
-```
-
-Questo finisce in tabella nel report e dice esattamente *come* è terminato ogni run.
+- **Gradiente**: condizione necessaria vera. E' il criterio "scientificamente corretto" da riportare.
+- **|Delta F|**: rileva stagnazione in valli strette o regioni piatte, dove il metodo zigzaga senza migliorare F ma il gradiente non e ancora piccolo.
+- **||Delta x||**: rileva collasso del passo. Armijo puo ridurre $\alpha$ a $10^{-10}$ se la line search e in difficolta; senza questo check il loop gira a vuoto.
 
 ---
 
-## 4. Versioni assolute vs relative
-
-Per rendere le tolleranze indipendenti dalla scala di F (e quindi dal problema):
+## 4. Varianti assolute vs relative
 
 | Forma assoluta | Forma relativa |
 |----------------|-----------------|
-| `||g_k||` ≤ τ_g | `||g_k|| / ||g_0||` ≤ τ_g_rel |
-| `\|F_{k+1} - F_k\|` ≤ τ_f | `\|F_{k+1} - F_k\| / max(\|F_k\|, 1)` ≤ τ_f_rel |
-| `||x_{k+1} - x_k||` ≤ τ_x | `||x_{k+1} - x_k|| / max(\|\|x_k\|\|, 1)` ≤ τ_x_rel |
+| $\|\nabla F_k\| \le \tau_g$ | $\|\nabla F_k\| / \|\nabla F_0\| \le \tau_g$ |
+| $|F_k - F_{k-1}| \le \tau_f$ | $|F_k - F_{k-1}| / \max(|F_k|, 1) \le \tau_f$ |
+| $\|x_k - x_{k-1}\| \le \tau_x$ | $\|x_k - x_{k-1}\| / \max(\|x_k\|, 1) \le \tau_x$ |
 
-Il `max(..., 1)` evita la divisione per zero quando il denominatore è piccolo.
+Il `max(..., 1)` evita divisione per zero.
 
-**In pratica si usano entrambe le versioni** in OR — quella assoluta vince vicino a F=0 (es. Prob.32), quella relativa vince per F grandi (Prob.16 a `n=10⁵` ha F dell'ordine di 10⁵).
+**Assoluta**: semplice, interpretabile. Ma dipende dalla scala di F.
 
----
+**Relativa**: scale-invariant rispetto a F. Ma attenzione: se il denominatore e enorme, la soglia effettiva diventa troppo permissiva (vedi sezione 6).
 
-## 5. Tolleranze consigliate per il nostro assignment
-
-```python
-tol_g_abs   = 1e-6        # ||grad|| <= tol_g_abs
-tol_g_rel   = 1e-6        # ||grad_k|| / ||grad_0|| <= tol_g_rel
-tol_f_rel   = 1e-12       # |F_{k+1} - F_k| / max(|F_k|, 1) <= tol_f_rel
-tol_x_rel   = 1e-8        # ||x_{k+1} - x_k|| / max(||x_k||, 1) <= tol_x_rel
-max_iter    = 1000        # safety
-```
-
-Ratio:
-- `tol_f_rel = 10⁻¹²` perché `|ΔF| ~ ||g||²`, quindi per coerenza con `tol_g = 10⁻⁶` serve il quadrato.
-- `tol_x_rel = 10⁻⁸` un po' più stretto del gradiente (perché `||Δx|| ~ α||g||` con α ≤ 1: per la stessa precisione su `||g||`, `||Δx||` è leggermente più piccolo).
+**Nota** (dalle slide): impostare TOL pari a $\varepsilon_m \approx 10^{-16}$ e inaccettabile per criteri relativi perche gli errori di arrotondamento dominano.
 
 ---
 
-## 6. Cosa scrivere nel report
+## 5. Livelli di tolleranza
 
-**Sezione "Stopping criteria"** (mezza pagina, con la tabella della §2 e il paragrafo §3.4 riadattati). Punti da toccare:
+Basati sulle slide del corso e sulle relazioni di scala:
 
-1. Tre criteri usati in OR, ciascuno con la sua tolleranza.
-2. Le tolleranze sono **diverse di ordini di grandezza** perché le quantità misurate hanno scale diverse (gradiente lineare, ΔF quadratico in `||g||`).
-3. I criteri non sono ridondanti: il gradiente è la condizione "vera", `|ΔF|` rileva stagnazione, `||Δx||` rileva collasso del passo.
-4. La forma relativa è preferita per essere indipendente dalla scala di F (importante a `n=10⁵` dove F può valere `10⁵`).
-5. Per ogni run riportare il **motivo** di terminazione, non solo "success/fail".
+### Rough ($10^{-4}$)
+
+| Criterio | Tolleranza |
+|----------|-----------|
+| grad norm | $10^{-4}$ |
+| x change | $10^{-4}$ |
+| f change | $10^{-8}$ |
+
+Poca precisione, convergenza veloce.
+
+### Good ($10^{-8}$)
+
+| Criterio | Tolleranza |
+|----------|-----------|
+| grad norm | $10^{-8}$ |
+| x change | $10^{-8}$ |
+| f change | $10^{-16}$ |
+
+Default raccomandato. $\tau_f = 10^{-16}$ e al limite della macchina: in pratica scattera prima il gradiente o $\Delta x$.
+
+### Very Good ($10^{-12}$)
+
+| Criterio | Tolleranza |
+|----------|-----------|
+| grad norm | $10^{-12}$ |
+| x change | $10^{-12}$ |
+| f change | non fattibile ($10^{-24}$ sotto la macchina) |
+
+Molto esigente. Il criterio su f non e utilizzabile a questo livello.
 
 ---
 
-## 7. Pseudocodice della logica di stop
+## 6. Dipendenza dalla dimensione: la trappola della 2-norma
+
+Tutti i criteri sopra usano la 2-norma $\|g\|_2 = \sqrt{\sum_{j=1}^n g_j^2}$. Questa **scala con** $\sqrt{n}$: a parita di qualita per-componente, la norma cresce con la dimensione.
+
+### Il problema concreto
+
+Se ogni $|g_j| \approx 10^{-6}$ (ottimo per-componente):
+
+| n | $\|g\|_2$ | Esito con $\tau = 10^{-4}$ |
+|---|-----------|----------------------------|
+| 2 | $1.4 \times 10^{-6}$ | OK |
+| 1,000 | $3.2 \times 10^{-5}$ | OK |
+| 100,000 | $3.2 \times 10^{-4}$ | **FAIL** |
+
+La **stessa qualita di soluzione** viene dichiarata OK a n=2 e FAIL a n=100,000.
+
+### Perche il criterio relativo non risolve
+
+Si potrebbe pensare che normalizzare per $\|\nabla F_0\|$ compensi. In realta crea il problema opposto.
+
+$\|\nabla F_0\|$ scala come $O(n^{3/2})$ o peggio (P28: $O(n^7)$). Con $\tau = 10^{-4}$:
+
+$$\text{soglia effettiva} = \tau \cdot \|\nabla F_0\| = 10^{-4} \cdot 10^7 = 10^3$$
+
+Il metodo si ferma con $\|g\| = 600$ e dichiara "OK". Risultati osservati:
+
+| Run | Criterio | iter | f* | $\|g\|$ | Esito |
+|-----|----------|------|----|---------|-------|
+| P16 n=100k, $\bar{x}$ | grad_rel $10^{-4}$ | 4 | -4.144350e+04 | 1.18 | "OK" |
+| P16 n=100k, rand | grad_rel $10^{-4}$ | 21 | **-3.901e+04** | **609** | "OK" |
+| P28 n=1000, $\bar{x}$ | grad_rel $10^{-4}$ | 8 | ... | **8.08e+16** | "OK" |
+
+Con grad_rel, il metodo si ferma **molto prematuramente**: f* non e il minimo, il gradiente e enorme, ma il rapporto $\|g\|/\|g_0\|$ e gia sotto tolleranza.
+
+### Soluzione: norma infinito
+
+La norma infinito $\|g\|_\infty = \max_j |g_j|$ e **indipendente dalla dimensione**. Se ogni componente ha $|g_j| < \tau$, allora $\|g\|_\infty < \tau$, qualunque sia n.
+
+| Norma | Significato di $\tau = 10^{-4}$ a n=100,000 |
+|-------|----------------------------------------------|
+| $\|g\|_2 \le 10^{-4}$ | Media quadratica $< 3.2 \times 10^{-7}$ per componente |
+| $\|g\|_\infty \le 10^{-4}$ | **Ogni** componente $< 10^{-4}$ |
+
+La seconda ha un significato fisico diretto e non dipende da n.
+
+---
+
+## 7. Stagnazione con alpha scalare su problemi separabili
+
+Anche con il criterio "giusto", i metodi possono stagnare per un motivo strutturale.
+
+### Il meccanismo
+
+Quando l'hessiana e diagonale (P16), il passo di Newton e per-componente: $p_j = -g_j / H_{jj}$. Ma la line search di Armijo sceglie un **unico** $\alpha$ per tutte le n componenti.
+
+Se le scale sono diverse (per P16: $H_{jj} \approx j$, da 1 a 100,000):
+1. Le componenti con j piccolo hanno $p_j$ grande e possono overshooting
+2. Armijo riduce $\alpha$ per accomodare le componenti "difficili"
+3. Le componenti con j grande (che hanno gia $p_j$ minuscolo) subiscono un $\alpha$ moltiplicato per un passo microscopico
+4. Il passo effettivo $\alpha \cdot p_j$ si perde nel floating point
+
+**Risultato**: $\|g_{k+1}\|/\|g_k\| \approx 1.0$ — il metodo e completamente fermo. Non sta convergendo lentamente: non si muove.
+
+### Perche da $\bar{x}$ funziona
+
+Da $\bar{x} = (1, \ldots, 1)$, tutte le componenti partono dallo stesso valore. I passi Newton sono uniformi, non c'e conflitto di scala, $\alpha \approx 1$ viene accettato, convergenza quadratica in 6 iterazioni.
+
+### Per il report
+
+Questo non e un difetto del metodo: e una conseguenza nota dell'uso di un passo scalare su un problema con scale diverse. Il minimo viene comunque trovato correttamente (f* identico da tutti gli starting point). La "non convergenza" e solo nella certificazione tramite il gradiente, non nella qualita della soluzione.
+
+---
+
+## 8. Combinazione (OR) e criterio combinato
+
+Quando si usano piu criteri in OR:
+- Il metodo si ferma appena **uno qualsiasi** scatta
+- Il campo `stop_reason` registra quale criterio ha scattato
+- Alla banda "rough" domina il gradiente o $\Delta x$ (f-change scatta dopo per la relazione quadratica)
+- Alla banda "good"/"very good" domina il gradiente (f-change raggiunge i limiti della macchina)
+
+### Raccomandazione pratica
+
+Per il nostro assignment:
+- **Gradiente (assoluto)** come criterio primario — misura direttamente l'ottimalita
+- **$\Delta x$ (assoluto)** come safety net — cattura il collasso del passo
+- **$\Delta F$** solo alla banda "rough" dove e numericamente significativo
+- Riportare sempre il **motivo** di terminazione, non solo OK/FAIL
+
+---
+
+## 9. Pseudocodice
 
 ```
 g_norm0 = ||grad_f(x0)||
@@ -144,7 +207,7 @@ x_prev  = x0
 
 for k in 1..max_iter:
     g = grad_f(x)
-    g_norm = ||g||
+    g_norm = ||g||     # o ||g||_inf per indipendenza dalla dimensione
 
     # Stop sul gradiente
     if g_norm <= tol_g_abs:           stop("grad_abs")
@@ -152,13 +215,13 @@ for k in 1..max_iter:
 
     # Esegui un passo (Armijo + update)
     alpha = armijo(...)
-    x_new = x + alpha * (-g)
+    x_new = x + alpha * p
     F_new = F(x_new)
 
     # Stop sui progressi
-    if |F_new - F_prev| <= tol_f_rel * max(|F_prev|, 1):
+    if |F_new - F_prev| <= tol_f * max(|F_prev|, 1):
         stop("f_change")
-    if ||x_new - x_prev|| <= tol_x_rel * max(||x_prev||, 1):
+    if ||x_new - x_prev|| <= tol_x * max(||x_prev||, 1):
         stop("x_change")
 
     x_prev, F_prev = x_new, F_new
@@ -167,5 +230,3 @@ for k in 1..max_iter:
 else:
     stop("max_iter")
 ```
-
-L'ordine dei controlli è: prima il gradiente (fa scattare la convergenza "vera"), poi i progressi (fanno scattare le diagnosi di stagnazione/collasso).

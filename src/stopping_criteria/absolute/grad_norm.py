@@ -1,12 +1,12 @@
-"""||grad F(x_k)|| <= tol  (forma assoluta)."""
+"""||grad F(x_k)|| <= tol  (absolute form)."""
 import numpy as np
 
 from ..base import StoppingCriterion
 
 
 class GradNormAbsolute(StoppingCriterion):
-    """Criterio del primo ordine: arresto quando la norma del gradiente
-    scende sotto la tolleranza. Dipende dalla scala di F."""
+    """First-order criterion: stop when the gradient norm drops below the
+    tolerance.  Scale-dependent on F."""
 
     name = "grad_abs"
 

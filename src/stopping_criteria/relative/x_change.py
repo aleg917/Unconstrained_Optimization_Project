@@ -1,8 +1,8 @@
-"""||x_k - x_{k-1}|| / max(||x_k||, 1) <= tol  (forma relativa).
+"""||x_k - x_{k-1}|| / max(||x_k||, 1) <= tol  (relative form).
 
-Normalizzata sull'iterato CORRENTE (non su x_0): assumiamo di non
-conoscere x_0 a posteriori. Il `max(..., 1)` evita la divisione per
-zero per iterati piccoli.
+Normalized by the CURRENT iterate (not x_0): we assume no prior
+knowledge of x_0 after the fact.  The max(..., 1) avoids division
+by zero for small iterates.
 """
 import numpy as np
 

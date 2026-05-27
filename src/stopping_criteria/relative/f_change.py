@@ -1,8 +1,9 @@
-"""|F(x_k) - F(x_{k-1})| / max(|F(x_k)|, 1) <= tol  (forma relativa).
+"""|F(x_k) - F(x_{k-1})| / max(|F(x_k)|, 1) <= tol  (relative form).
 
-Normalizzata sul valore CORRENTE di F (non su F_0): assumiamo di non
-conoscere F all'inizio del run. Il `max(..., 1)` evita la divisione per
-zero quando F si avvicina a 0 (es. problemi sum-of-squares come Problem 28).
+Normalized by the CURRENT value of F (not F_0): we assume no prior
+knowledge of F at the start of the run.  The max(..., 1) avoids
+division by zero when F approaches 0 (e.g. sum-of-squares problems
+like Problem 28).
 """
 from ..base import StoppingCriterion
 

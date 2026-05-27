@@ -1,21 +1,20 @@
-"""Classe base per i criteri di arresto plug-in.
+"""Base class for plug-in stopping criteria.
 
-Pattern a strategia: lo stesso loop di Steepest Descent puo essere eseguito
-con criteri di arresto diversi senza modificare il metodo. Ogni criterio:
+Strategy pattern: the same optimization loop can be run with different
+stopping criteria without modifying the method.  Each criterion:
 
-1. Espone un attributo `name` (stringa) che finisce nel campo `stop_reason`
-   del risultato — utile per le tabelle sperimentali.
-2. Implementa `initialize(x0, F0, g0)`, chiamato una sola volta prima del
-   loop. Le versioni `relative` salvano qui i valori di riferimento (es.
-   ||g_0||).
-3. Implementa `should_stop(k, x, F, g, x_prev, F_prev) -> bool`, chiamato
-   a inizio di ogni iterazione. I criteri 'change' devono ritornare False
-   quando k == 0 (non c'e ancora un x_prev sensato).
+1. Exposes a `name` attribute (string) that ends up in the `stop_reason`
+   field of the result dict — useful for experimental tables.
+2. Implements `initialize(x0, F0, g0)`, called once before the loop.
+   The `relative` variants save their reference values here (e.g. ||g_0||).
+3. Implements `should_stop(k, x, F, g, x_prev, F_prev) -> bool`, called
+   at every iteration.  The 'change' criteria must return False when
+   k == 0 (there is no meaningful x_prev yet).
 """
 
 
 class StoppingCriterion:
-    """Strategia di arresto plug-in per metodi iterativi."""
+    """Plug-in stopping strategy for iterative optimization methods."""
 
     name: str = "base"
 
@@ -23,23 +22,23 @@ class StoppingCriterion:
         self.tol = float(tol)
 
     def initialize(self, x0, F0, g0):
-        """Hook chiamato UNA volta prima del loop. Override nelle sottoclassi
-        che hanno bisogno di un riferimento iniziale (es. ||g_0||)."""
+        """Hook called ONCE before the loop.  Override in subclasses that
+        need an initial reference (e.g. ||g_0||)."""
         pass
 
     def should_stop(self, k, x, F, g, x_prev, F_prev) -> bool:
-        """Decide se fermare il loop all'iterazione k.
+        """Decide whether to stop the loop at iteration k.
 
-        Parametri
-        ---------
-        k       : indice di iterazione (0-based, prima del passo k-esimo)
-        x       : iterato corrente
-        F       : F(x) corrente
-        g       : grad F(x) corrente
-        x_prev  : iterato precedente (uguale a x quando k == 0)
+        Parameters
+        ----------
+        k       : iteration index (0-based, before the k-th step)
+        x       : current iterate
+        F       : F(x) at current iterate
+        g       : grad F(x) at current iterate
+        x_prev  : previous iterate (equal to x when k == 0)
         F_prev  : F(x_prev)
 
-        I criteri 'change' devono restituire False quando k == 0.
+        The 'change' criteria must return False when k == 0.
         """
         raise NotImplementedError
 
