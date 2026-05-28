@@ -421,27 +421,53 @@ I risultati sui CSV `results/fine_tuning_modified_newton.csv` e
 `results/fine_tuning_truncated_newton.csv` (DIMS=[2, 1000, 10000, 100000],
 6 starting points, 60s time limit, criterio fisso `GradNormAbsolute(1e-4)`).
 
-**Importante**: le metriche `mean_iter`, `mean_grad`, `mean_time` qui riportate
+### 6.0 Criterio di selezione del "best"
+
+Per ogni metodo definiamo il best parameter set tramite una gerarchia
+esplicita di metriche:
+
+1. **`avg_success`** — primary. Frazione di run convergenti (sul totale
+   `problemi × dimensioni × starting points`). Una configurazione che non
+   converge non è utilizzabile.
+2. **`avg_iter`** — secondary. Media delle iterazioni sulle run di successo.
+   Misura efficienza algoritmica indipendente dalla macchina.
+3. **`avg_time`** — tertiary tiebreaker. Wall-clock medio sulle run di
+   successo. Confronto solo a parità delle prime due.
+
+**Perché `avg_grad` non entra nel ranking**: la colonna `avg_grad` riporta
+`||∇f||` all'ultimo iterato (= momento di stop), mediato sulle run di
+successo. Per definizione del criterio fissato `GradNormAbsolute(tol=1e-4)`,
+ogni run con `success=True` soddisfa già `||∇f|| ≤ 1e-4`. Empiricamente si
+osservano mediani 1e-6 a 1e-5 in tutte le configurazioni — la metrica è
+sostanzialmente uniforme tra config diverse e quindi **non discrimina**.
+Resta in tabella come *sanity check*: se vedessimo `avg_grad > 1e-4`,
+ci sarebbe un bug.
+
+**Importante**: le metriche `avg_iter`, `avg_time`, `avg_grad` qui riportate
 sono calcolate **solo sulle run che hanno avuto successo**. Le run fallite
-per `max_iter` o `time_limit` mantenevano un `grad_norm` finale enorme che
-inquinava le medie aggregate originali del notebook (vedi
+per `max_iter` o `time_limit` venivano originariamente aggregate con un
+`grad_norm` finale enorme che inquinava le medie (vedi
 [Stopping_criteria_explanation.md](Stopping_criteria_explanation.md) §4 per
-dettagli sullo stesso pattern di bug).
+lo stesso pattern di bug nella Phase 2).
 
 ### 6.1 Modified Newton
 
-**Iter e tempo sui successi**:
+**Ranking globale (sort: avg_success → avg_iter → avg_time)**:
 
-| problem | beta  | rho | n_success | mean_iter | mean_time (s) |
-|---------|-------|-----|-----------|-----------|---------------|
-| P16     | 1e-6  | 0.5 | 19        | 104.7     | 0.463         |
-| P16     | 1e-6  | 0.8 | 18        | 45.4      | 0.307         |
-| P16     | 1e-3  | 0.5 | 19        | **12.1**  | **0.012**     |
-| P16     | 1e-3  | 0.8 | 19        | **11.6**  | **0.013**     |
-| P28     | 1e-6  | 0.5 | 12        | 21.0      | 3.58          |
-| P28     | 1e-6  | 0.8 | 12        | 21.0      | 3.42          |
-| P28     | 1e-3  | 0.5 | 12        | 21.0      | 2.53          |
-| P28     | 1e-3  | 0.8 | 12        | 21.0      | 2.63          |
+| rank | beta  | rho | avg_success | avg_iter | avg_time (s) |
+|------|-------|-----|-------------|----------|--------------|
+| 1    | 1e-3  | 0.8 | 0.738       | **15.2** | **0.99**     |
+| 2    | 1e-3  | 0.5 | 0.738       | 15.5     | 1.06         |
+| 3    | 1e-6  | 0.5 | 0.738       | 72.3     | 1.82         |
+| 4    | 1e-6  | 0.8 | 0.714       | 35.6     | 1.59         |
+
+**Best per problema** (ranking ricomputato sul subset del problema):
+
+| Scope     | Config         | success | iter | time (s) |
+|-----------|----------------|---------|------|----------|
+| Overall   | β=1e-3, ρ=0.8  | 0.738   | 15.2 | 0.99     |
+| Best P16  | β=1e-3, ρ=0.8  | 0.792   | 11.6 | 0.013    |
+| Best P28  | β=1e-3, ρ=0.8  | 0.667   | 21.0 | 2.54     |
 
 **Success rate per (problem, n, beta, rho)**:
 
@@ -454,33 +480,44 @@ dettagli sullo stesso pattern di bug).
 | P28, 2      | 1.00         | 1.00         | 1.00         | 1.00         |
 | P28, 1000   | 1.00         | 1.00         | 1.00         | 1.00         |
 | P28, 10000  | 0            | 0            | 0            | 0            |
+| P28, 100000 | 0            | 0            | 0            | 0            |
 
 **Conclusioni MN**:
-1. **β=1e-3 è il chiaro vincitore su P16**: mean_iter scende da ~50–105 a ~12
-   (fattore 10x), e il tempo da ~0.4s a ~0.013s (fattore 30x). La predizione
+1. **β=1e-3 è il chiaro vincitore su P16**: avg_iter scende da ~36–72 a ~12
+   (fattore 5x), e il tempo da ~0.3–0.6s a ~0.013s (fattore 30x). La predizione
    teorica "β marginale" era basata sulle prime iterazioni; in realtà il
    beneficio si accumula su tutte le iter intermedie.
-2. **Su P28 β e ρ sono entrambi inerti** (21 iter ovunque): l'Hessiana è già
-   SPD al punto iniziale, la modifica $\tau$ non scatta mai.
-3. **ρ non discrimina su P28; su P16 è marginale** (12 vs 11.6 iter).
+2. **Su P28 β e ρ sono inerti** (21.0 iter sempre): l'Hessiana è già SPD al
+   punto iniziale, la modifica $\tau$ non scatta mai. Tutte le 4 config sono
+   equivalenti su P28.
+3. **ρ è un tiebreaker fine**: tra ρ=0.5 e ρ=0.8 a β=1e-3, la differenza è
+   ~0.3 iter (15.5 vs 15.2). Il sort gerarchico privilegia ρ=0.8.
 
-**Best MN scelto**: $\beta = 10^{-3}, \rho = 0.5$. Ragionevole anche
-$\rho = 0.8$ ma 0.5 è la convenzione standard.
+**Best MN scelto**: **β = 1e-3, ρ = 0.8** (vince in tutti i 3 scope:
+Overall, P16-only, P28-only). Sostituisce il default precedente (ρ=0.5)
+basato su quick-mode.
 
 ### 6.2 Truncated Newton
 
-**Iter, CG e tempo sui successi**:
+**Ranking globale (sort: avg_success → avg_iter → avg_time)**:
 
-| problem | forcing     | rho | n_success | mean_iter | mean_cg | mean_time (s) |
-|---------|-------------|-----|-----------|-----------|---------|---------------|
-| P16     | quadratic   | 0.5 | 21        | **17.3**  | **648** | **1.58**      |
-| P16     | quadratic   | 0.8 | 21        | 20.6      | 619     | 1.27          |
-| P16     | superlinear | 0.5 | 22        | 19.6      | 1238    | 4.02          |
-| P16     | superlinear | 0.8 | 22        | 25.9      | 947     | 3.32          |
-| P28     | quadratic   | 0.5 | 15        | 26.5      | 27.5    | 9.46          |
-| P28     | quadratic   | 0.8 | 15        | 26.5      | 27.5    | 9.56          |
-| P28     | superlinear | 0.5 | 13        | 23.0      | 23.8    | 4.14          |
-| P28     | superlinear | 0.8 | 13        | 23.0      | 23.8    | 3.57          |
+| rank | forcing     | rho | avg_success | avg_iter | avg_time (s) |
+|------|-------------|-----|-------------|----------|--------------|
+| 1    | quadratic   | 0.5 | 0.750       | 21.1     | 4.63         |
+| 2    | quadratic   | 0.8 | 0.750       | 23.1     | 4.65         |
+| 3    | superlinear | 0.5 | 0.729       | 20.9     | 3.88         |
+| 4    | superlinear | 0.8 | 0.729       | 24.8     | 2.93         |
+
+**Best per problema**:
+
+| Scope     | Config                 | success | iter | time (s) |
+|-----------|------------------------|---------|------|----------|
+| Overall   | quadratic, ρ=0.5       | 0.750   | 21.1 | 4.63     |
+| Best P16  | **superlinear, ρ=0.5** | 0.917   | 19.6 | 4.12     |
+| Best P28  | quadratic, ρ=0.5       | 0.625   | 26.5 | 9.22     |
+
+Notare: sulla scelta P16-only, superlinear (success_P16=91.7%) vince su
+quadratic (87.5%). La gerarchia premia il success rate prima delle iter.
 
 **Success rate per (problem, n, forcing, rho)**:
 
@@ -496,27 +533,52 @@ $\rho = 0.8$ ma 0.5 è la convenzione standard.
 | P28, 100000 | 0          | 0          | 0           | 0           |
 
 **Conclusioni TN**:
-1. **Su P16**, quadratic + ρ=0.5 è il best: 17.3 iter, 648 CG totali, 1.58s.
-   Superlinear costa di più (1238 CG totali, 4s) ma vince in success rate a
-   n=100000 (0.67 vs 0.50). Trade-off: quadratic per velocità, superlinear
-   per robustezza alle dimensioni estreme.
-2. **Su P28**, quadratic ha success rate maggiore a n=10000 (0.50 vs 0.17 per
-   superlinear) — la convergenza accurata vicino al minimo è essenziale per
-   la convergenza outer su questo problema.
-3. **ρ**: su P16, ρ=0.5 dà 17.3 iter vs 20.6 iter con ρ=0.8 (quadratic) — la
-   preferenza per ρ=0.5 si manifesta solo su problemi con Hessiana
-   "ben dispersa" (P16). Su P28, ρ è inerte.
+1. **Su P16**, superlinear è più robusto: success_P16=91.7% vs 87.5%.
+   Quadratic richiede meno iter (17.3 vs 19.6) ma il vantaggio in efficienza
+   viene perso se non converge.
+2. **Su P28**, quadratic è strettamente meglio: success_P28=62.5% vs 54.2%.
+   Confermata la teoria — l'Hessiana $I + c\mathbf{j}\mathbf{j}^T$ con 2
+   cluster di autovalori richiede una direzione Newton accurata.
+3. **Best globale**: quadratic ρ=0.5 perché vince sia in success aggregato
+   (75% vs 72.9%) sia in iter (a parità di success, ρ=0.5 < ρ=0.8 in iter).
 
-**Best TN scelto**: forcing = quadratic, ρ = 0.5 (vince aggregato in iter,
-CG e success P28; perde solo per success rate P16 a n=100000 dove superlinear
-è marginalmente meglio).
+**Best TN scelto**:
+- Default (`main.ipynb`): **forcing = quadratic, ρ = 0.5** (vince Overall e
+  Best P28).
+- Su P16-only: superlinear, ρ=0.5 sarebbe preferibile. Trade-off documentato
+  nel report.
 
 ### 6.3 Verdetto pratico per produzione
 
-| Metodo | Default consigliato | Note |
-|--------|--------------------|------|
-| MN     | β=1e-3, ρ=0.5       | Vince nettamente su P16 (fattore 10x in iter), neutro su P28. |
-| TN     | forcing=quadratic, ρ=0.5 | Vince su P16 (17 iter) e P28 (success +8 punti). Considerare superlinear per P16 a n estremamente grandi. |
+| Metodo | Default consigliato      | Best P16-only       | Best P28-only     |
+|--------|--------------------------|---------------------|-------------------|
+| MN     | β=1e-3, ρ=0.8            | β=1e-3, ρ=0.8       | β=1e-3, ρ=0.8     |
+| TN     | forcing=quadratic, ρ=0.5 | forcing=superlinear, ρ=0.5 | forcing=quadratic, ρ=0.5 |
+
+### 6.4 Limite di applicabilità della griglia
+
+Sulla griglia DIMS = [2, 1000, 10000, 100000], alcuni fallimenti sono inerenti
+all'esperimento e non al metodo:
+
+- **P16 a n=100000 (success ~17–67%)**: l'algoritmo raggiunge `max_iter=1000`
+  ma il gradiente è ancora sopra `1e-4`. Aumentando `max_iter` ci si
+  aspetterebbe convergenza, ma il costo per iterazione su P16-large
+  rende il completamento più lento del time_limit.
+
+- **P28 a n=10000 (success ~17–50%) e n=100000 (success 0%)**: tutte le run
+  che falliscono lo fanno per **`stop_reason='time_limit'`** (60s). Su
+  P28 con dimensione grande, una sola iterazione Newton richiede la
+  fattorizzazione di una matrice $n \times n$ densa — costa $O(n^3)$.
+  Per n=10000 questa è ~10⁹ operazioni → secondi per iterazione → il
+  time limit viene raggiunto prima della convergenza. **Non significa
+  che il metodo non converge**: significa che 60s non bastano. Aumentare
+  `TIME_LIMIT` (a costo di tempi di esperimento più lunghi) recupererebbe
+  questi casi.
+
+Le celle `(P28, n=10000)` e `(P28, n=100000)` appaiono come **NaN nelle
+pivot di `mean_iter`** perché il filter `success=True` esclude tutte le run.
+La pivot di `success_rate` mostra invece il valore corretto (0.00) e
+documenta l'esistenza di queste configurazioni.
 
 Per gli stopping criteria, vedi documento dedicato
 [Stopping_criteria_explanation.md](Stopping_criteria_explanation.md).

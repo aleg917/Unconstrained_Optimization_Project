@@ -61,10 +61,14 @@ Key params: `alpha0, c1, rho, max_iter_backtrack` (Armijo) + `forcing, cg_max_it
 `armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5, max_iter=50)`
 - Condition: f(x + alpha*d) <= f(x) + c1*alpha*<g, d>
 
-## Quick-mode Results (DIMS=[2,1000], 2 starts)
+## Full-mode Results (DIMS=[2,1000,10000,100000], 6 starts, 60s time_limit)
 
-Best Modified Newton: c1=1e-3, rho=0.5, beta=1e-3, max_tau=50, max_bt=30 → 100% success, avg 15.6 iter
-Best Truncated Newton: c1=1e-4, rho=0.8, forcing=quadratic, cg_max=50, max_bt=30 → 100% success, avg 19.9 iter
+Selection hierarchy: avg_success → avg_iter → avg_time (avg_grad sanity check only).
+
+Best Modified Newton (Overall = Best P16 = Best P28): beta=1e-3, rho=0.8 → 73.8% success, 15.2 avg iter, 0.99s
+Best Truncated Newton:
+  - Overall / Best P28: forcing=quadratic, rho=0.5 → 75.0% success, 21.1 avg iter
+  - Best P16: forcing=superlinear, rho=0.5 → 91.7% success_P16, 19.6 iter_P16
 
 ## Tuning Decisions (see docs/tuning_analysis.md)
 
