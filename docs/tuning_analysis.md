@@ -102,6 +102,19 @@ che rho=0.5 troverebbe), riducendo il numero totale di iterazioni esterne.
 Questo suggerisce che la direzione TN (inesatta) beneficia di una ricerca
 più fine dello step size. Vale la pena testare entrambi.
 
+**Aggiornamento full-mode** (DIMS=[2,1000,10000,100000], 6 starting points):
+- MN: rho non discrimina (mean_iter=130.4 con rho=0.5, 130.4 con rho=0.8 a beta=1e-3).
+  L'effetto del passo iniziale e del backtracking aggressivo è trascurabile.
+- TN: rho=0.5 è leggermente migliore (mean_iter=146.1 vs 149.7 a forcing=quadratic).
+  In particolare su P16: 18.2 iter (rho=0.5) vs 25.7 iter (rho=0.8) — la preferenza
+  per rho=0.5 si manifesta nettamente al crescere della dimensione. Inversione
+  rispetto al quick-mode.
+
+La spiegazione è che il passo unitario alpha=1 viene accettato dall'Armijo nella
+grande maggioranza delle iterazioni (specialmente vicino alla soluzione, dove il
+modello quadratico è accurato). Le rare riduzioni di passo non beneficiano della
+granularità fine di rho=0.8; conviene il halving aggressivo di rho=0.5.
+
 ### 1.4 max_iter_backtrack = 50 — FISSO
 
 Questo è un parametro di **safety**. Con $\rho = 0.5$, dopo 50 riduzioni:
@@ -191,8 +204,29 @@ più un termine rank-1 positivo semidefinito → **$H$ è sempre definita positi
 al punto iniziale di P28. La modifica Cholesky non serve mai (a meno che il
 punto corrente si allontani molto da $\bar{x}$). **$\beta$ è irrilevante per P28.**
 
-**Verdetto**: $\beta$ ha impatto solo su P16 e solo marginale. Testiamo
-$\{10^{-6}, 10^{-3}\}$ per completezza, ma ci aspettiamo poca differenza.
+**Verdetto preliminare (quick-mode)**: $\beta$ ha impatto solo su P16 e solo
+marginale. Testiamo $\{10^{-6}, 10^{-3}\}$ per completezza, ma ci aspettiamo
+poca differenza.
+
+**Aggiornamento full-mode — smentita parziale**: il quick-mode aveva mascherato
+l'effetto. Sui CSV full-mode (`results/fine_tuning_modified_newton.csv`):
+
+| beta | mean_iter (aggregato) | mean_iter P16 | mean_iter P28 | success aggreg. |
+|------|----------------------|---------------|---------------|-----------------|
+| 1e-6 | 168.9                | 284.4         | 14.3          | 0.726           |
+| 1e-3 | 130.4 (**-23%**)     | 217.7         | 14.3          | 0.738           |
+
+L'effetto è significativo su P16 (~30% iter risparmiate), inesistente su P28
+(coerente con la teoria: $H$ è già SPD al punto iniziale, nessuna modifica
+richiesta). La spiegazione: nelle iterazioni intermedie di P16, $x_k$ si
+allontana dal punto iniziale e $\min(\text{diag}(H))$ può cambiare segno o
+ampiezza. Un $\beta$ iniziale più grande riduce il numero di **raddoppi di
+$\tau$** necessari ad ogni iterazione per ottenere una matrice SPD —
+fattorizzazione di Cholesky più veloce e meno tentativi falliti per step.
+
+**Verdetto finale**: $\beta = 10^{-3}$ è la scelta consigliata (default in
+`main.ipynb`). $\beta = 10^{-6}$ resta accettabile ma costa il 23% in più di
+iterazioni su P16.
 
 ### 2.2 max_tau_iter = 100 — FISSO
 
@@ -256,83 +290,83 @@ qualità della direzione, che è determinata dalla forcing sequence.
 Il risultato quick-mode conferma: **quadratic è il migliore** (19.9 avg iter
 vs attese più alte per superlinear).
 
-### 3.2 cg_max_iter = None — FISSO
+**Aggiornamento full-mode — risultato problema-dipendente**:
 
-$\text{None} \Rightarrow$ CG può fare fino a $n$ iterazioni. Come analizzato sopra:
-- P16: CG converge in 1 iterazione
-- P28: CG converge in $\leq 2$ iterazioni
+| forcing     | rho | success P16 | mean_iter P16 | success P28 | mean_iter P28 |
+|-------------|-----|-------------|---------------|-------------|---------------|
+| superlinear | 0.5 | 0.917       | 19.9          | 0.542       | 274.9         |
+| quadratic   | 0.5 | 0.875       | 18.2          | 0.625       | 273.9         |
 
-Il cap non viene mai raggiunto. Per problemi con Hessiane più complesse (non
-i nostri), potrebbe avere senso limitare il CG per bilanciare costo inner/outer.
-Ma per P16 e P28, il valore di default è ottimale.
+- Su **P28**, quadratic vince nettamente (success +8 punti percentuali) — la
+  teoria regge: l'Hessiana $I + c\, \mathbf{j}\mathbf{j}^T$ ha 2 cluster di
+  autovalori, CG converge in 2 iterazioni, e una direzione Newton accurata
+  è essenziale per la convergenza outer.
+
+- Su **P16** invece superlinear vince in success rate (+4 punti). Il motivo:
+  l'Hessiana diagonale di P16 ha *autovalori molto sparsi* (non 2 cluster), e
+  il CG NON converge in poche iterazioni — anzi, fa ~108 iter inner per
+  ogni iter outer (vedi §3.2). Con quadratic, si richiede una precisione CG
+  altissima vicino alla soluzione → CG fa moltissime iterazioni inner →
+  costo computazionale alto e maggior rischio di mancata convergenza per
+  time_limit. Superlinear richiede meno precisione e completa più velocemente.
+
+**Verdetto finale**: quadratic resta la scelta di default (vince P28 e
+aggregato), ma su problemi con Hessiana "ben dispersa" (autovalori non
+clusterizzati) superlinear può essere preferibile per ragioni di costo
+inner.
+
+### 3.2 cg_max_iter = None — FISSO (con caveat)
+
+$\text{None} \Rightarrow$ CG può fare fino a $n$ iterazioni. L'analisi
+preliminare aveva previsto:
+- P16: CG converge in 1 iterazione (Hessiana diagonale ⇒ sistema banale).
+- P28: CG converge in $\leq 2$ iterazioni (Hessiana = $I + c\,\mathbf{j}\mathbf{j}^T$,
+  Krylov subspace di dimensione 2).
+
+**Verifica empirica full-mode (cg_total dai CSV)**:
+
+| Problema | mean_outer_iter | mean_cg_total | CG iter/outer |
+|----------|-----------------|---------------|---------------|
+| P16      | 18.2            | 2074          | **~114**      |
+| P28      | 273.9           | 274.7         | ~1.003        |
+
+- **P28**: predizione confermata (~1 iter inner per outer).
+- **P16**: predizione **falsa** — il CG fa in media 114 iter inner per outer.
+  L'analisi "sistema diagonale banale" era ingenua: il CG non sfrutta la
+  diagonalità (è un metodo iterativo generale che vede solo prodotti
+  $H \cdot v$). Su una matrice diagonale con autovalori molto sparsi, il
+  rate di convergenza del CG è governato dal numero di condizionamento
+  $\kappa(H) = \lambda_{\max}/\lambda_{\min}$, che può essere grande.
+
+**Implicazione**: il default `cg_max_iter=n` permette al CG di lavorare il
+necessario senza cap. Su P16 con $n=100000$, il CG può in linea di principio
+arrivare a $n$ iter, e il cap teorico non è mai sotto-dimensionato. Tuttavia
+un cap esplicito (es. `cg_max_iter=50`) potrebbe ridurre il costo inner
+accettando direzioni più approssimate — esperimento fuori dallo scope di
+questa griglia.
 
 ---
 
-## 4. Stopping Criteria — Analisi e Riduzione
+## 4. Stopping Criteria — rinvio
 
-### 4.1 Insight chiave: valutazione post-hoc
+Il tuning degli stopping criteria segue una filosofia **diversa** da quello
+dei parametri del metodo: gli stopping criteria non alterano la traiettoria
+di convergenza, quindi si può registrare **una sola** traiettoria (con
+tolleranza molto stretta o fino a `max_iter`) e poi valutare *post-hoc*
+qualunque criterio sulla history salvata. Ogni criterio diventa una semplice
+funzione di check sulla sequenza $\{x_k, f_k, \|\nabla f_k\|\}$.
 
-Lo stopping criterion **non altera la traiettoria di convergenza** — decide
-solo quando dichiarare convergenza. Il notebook attuale ri-esegue l'algoritmo
-22 volte per ogni (metodo, problema, dim, start) cambiando solo il criterio.
+L'analisi completa — filosofia del tuning post-hoc, scelta delle tolleranze
+per criterio (incluso il riscalamento $\text{tol}_f \approx \text{tol}_g^2$
+suggerito dallo sviluppo di Taylor $|\Delta F| \approx \frac{1}{2}\|\nabla f\|^2$),
+pericoli dei criteri relativi su P28, struttura della Phase 2 del notebook,
+e template di motivazione per il report — è contenuta in un documento separato:
 
-**Approccio efficiente**: eseguire l'algoritmo **una sola volta** con
-`return_history=True` e una tolleranza molto stretta (o fino a `max_iter`),
-poi valutare post-hoc ogni criterio sulla history registrata.
+> **→ Vedi [`docs/Stopping_criteria_explanation.md`](Stopping_criteria_explanation.md)**.
 
-Questo elimina il fattore 22x dal tempo di esecuzione.
-
-### 4.2 Criteri assoluti vs relativi
-
-I criteri **relativi** normalizzano per il valore iniziale:
-$$\frac{\|\nabla f(x_k)\|}{\|\nabla f(x_0)\|} \leq \tau$$
-
-Per P28, $\|\nabla f(x_0)\| = O(n^7)$. Con $\tau = 10^{-8}$:
-$$\|\nabla f(x_k)\| \leq 10^{-8} \cdot O(n^7)$$
-
-| n | $\|\nabla f(x_0)\|$ (ordine) | Soglia effettiva grad_rel @ good |
-|---|---|---|
-| 100 | $10^{14}$ | $10^{6}$ (pessimo!) |
-| 1000 | $10^{21}$ | $10^{13}$ (catastrofico) |
-| 10000 | $10^{28}$ | $10^{20}$ (privo di senso) |
-
-I criteri relativi **dichiarano convergenza quando la norma del gradiente
-è ancora enorme**. I risultati quick-mode confermano: `grad_rel @ good`
-produce $\|\nabla f\| \approx 10^{12}$.
-
-I criteri **assoluti** usano soglie fisse indipendenti dal punto iniziale:
-sempre affidabili.
-
-### 4.3 Criteri basati su f-change
-
-Vicino al minimo, $|\Delta F| \approx \|\nabla f\|^2$ (sviluppo di Taylor).
-Quindi la tolleranza su $|F_k - F_{k-1}|$ corrisponde a:
-
-| Soglia $|\Delta F|$ | Soglia $\|\nabla f\|$ equivalente |
-|---|---|
-| $10^{-8}$ (rough) | $10^{-4}$ |
-| $10^{-16}$ (good) | $10^{-8}$ |
-| (very_good) | **non fattibile** — sotto la precisione macchina |
-
-I criteri f-change sono limitati alla banda "rough". Per soglie più strette,
-$|\Delta F|$ è dominato dal rumore di arrotondamento.
-
-### 4.4 Riduzione proposta
-
-Da **22 configurazioni** a **7**:
-
-| # | Criterio | Banda | Motivazione |
-|---|----------|-------|-------------|
-| 1 | `grad_abs` | rough ($10^{-4}$) | Gold standard, banda larga |
-| 2 | `grad_abs` | good ($10^{-8}$) | Gold standard, banda media |
-| 3 | `grad_abs` | very_good ($10^{-12}$) | Gold standard, banda stretta |
-| 4 | `x_abs` | rough ($10^{-4}$) | Conferma secondaria |
-| 5 | `x_abs` | good ($10^{-8}$) | Conferma secondaria |
-| 6 | `grad_rel` | rough ($10^{-4}$) | Mostrare che funziona solo a soglia larga |
-| 7 | `combined_abs` | good | Mostrare il combined approach |
-
-Con l'approccio post-hoc, queste 7 configurazioni non richiedono nessuna run
-aggiuntiva rispetto alla Phase 1.
+La griglia del notebook è stata aggiornata per testare ~22 configurazioni
+(6 criteri base × 3 band + 2 combined × 2 band) anziché le 7 originali —
+costo computazionale aggiuntivo nullo grazie all'approccio post-hoc.
 
 ---
 
@@ -381,35 +415,108 @@ Con DIMS = [2, 1000, 10000, 100000], 6 starting points per cella:
 
 ---
 
-## 6. Validazione Empirica (Quick-mode)
+## 6. Validazione Empirica (Full-mode)
 
-I risultati della griglia originale in quick-mode (DIMS=[2,1000], 2 starting
-points) confermano le scelte:
+I risultati sui CSV `results/fine_tuning_modified_newton.csv` e
+`results/fine_tuning_truncated_newton.csv` (DIMS=[2, 1000, 10000, 100000],
+6 starting points, 60s time limit, criterio fisso `GradNormAbsolute(1e-4)`).
 
-### Best configurations trovate
+**Importante**: le metriche `mean_iter`, `mean_grad`, `mean_time` qui riportate
+sono calcolate **solo sulle run che hanno avuto successo**. Le run fallite
+per `max_iter` o `time_limit` mantenevano un `grad_norm` finale enorme che
+inquinava le medie aggregate originali del notebook (vedi
+[Stopping_criteria_explanation.md](Stopping_criteria_explanation.md) §4 per
+dettagli sullo stesso pattern di bug).
 
-| Metodo | c1 | rho | Parametro specifico | Success | Avg iter |
-|--------|-----|-----|---------------------|---------|----------|
-| MN (best) | 1e-3 | 0.5 | beta=1e-3, max_tau=50, max_bt=30 | 100% | 15.6 |
-| TN (best) | 1e-4 | 0.8 | forcing=quadratic, cg_max=50, max_bt=30 | 100% | 19.9 |
+### 6.1 Modified Newton
 
-### Conferme
+**Iter e tempo sui successi**:
 
-1. **c1**: MN best usa 1e-3, TN best usa 1e-4 → il parametro non discrimina
-   (entrambi al 100%). Fissare c1=1e-4 è sicuro.
+| problem | beta  | rho | n_success | mean_iter | mean_time (s) |
+|---------|-------|-----|-----------|-----------|---------------|
+| P16     | 1e-6  | 0.5 | 19        | 104.7     | 0.463         |
+| P16     | 1e-6  | 0.8 | 18        | 45.4      | 0.307         |
+| P16     | 1e-3  | 0.5 | 19        | **12.1**  | **0.012**     |
+| P16     | 1e-3  | 0.8 | 19        | **11.6**  | **0.013**     |
+| P28     | 1e-6  | 0.5 | 12        | 21.0      | 3.58          |
+| P28     | 1e-6  | 0.8 | 12        | 21.0      | 3.42          |
+| P28     | 1e-3  | 0.5 | 12        | 21.0      | 2.53          |
+| P28     | 1e-3  | 0.8 | 12        | 21.0      | 2.63          |
 
-2. **rho**: MN preferisce 0.5, TN preferisce 0.8 → la differenza è reale,
-   vale la pena testarla. La griglia ridotta include entrambi i valori.
+**Success rate per (problem, n, beta, rho)**:
 
-3. **beta (MN)**: best = 1e-3. La griglia ridotta include sia 1e-6 che 1e-3.
+| problem, n  | β=1e-6 ρ=0.5 | β=1e-6 ρ=0.8 | β=1e-3 ρ=0.5 | β=1e-3 ρ=0.8 |
+|-------------|--------------|--------------|--------------|--------------|
+| P16, 2      | 1.00         | 1.00         | 1.00         | 1.00         |
+| P16, 1000   | 1.00         | 1.00         | 1.00         | 1.00         |
+| P16, 10000  | 1.00         | 0.83         | 1.00         | 1.00         |
+| P16, 100000 | 0.17         | 0.17         | 0.17         | 0.17         |
+| P28, 2      | 1.00         | 1.00         | 1.00         | 1.00         |
+| P28, 1000   | 1.00         | 1.00         | 1.00         | 1.00         |
+| P28, 10000  | 0            | 0            | 0            | 0            |
 
-4. **forcing (TN)**: best = quadratic. La griglia ridotta include sia
-   superlinear che quadratic.
+**Conclusioni MN**:
+1. **β=1e-3 è il chiaro vincitore su P16**: mean_iter scende da ~50–105 a ~12
+   (fattore 10x), e il tempo da ~0.4s a ~0.013s (fattore 30x). La predizione
+   teorica "β marginale" era basata sulle prime iterazioni; in realtà il
+   beneficio si accumula su tutte le iter intermedie.
+2. **Su P28 β e ρ sono entrambi inerti** (21 iter ovunque): l'Hessiana è già
+   SPD al punto iniziale, la modifica $\tau$ non scatta mai.
+3. **ρ non discrimina su P28; su P16 è marginale** (12 vs 11.6 iter).
 
-5. **Parametri eliminati**: max_tau_iter (50 vs 100), max_iter_bt (30 vs 50 vs
-   100), cg_max_iter (None vs 50) — tutti al 100% success rate su ogni valore
-   testato. La loro eliminazione dalla griglia non causa perdita di informazione.
+**Best MN scelto**: $\beta = 10^{-3}, \rho = 0.5$. Ragionevole anche
+$\rho = 0.8$ ma 0.5 è la convenzione standard.
 
-6. **Stopping criteria relativi**: grad_rel/combined_rel mostrano
-   $\|\nabla f\| \approx 10^{12}$ alla "convergenza" (band=good) → confermano
-   che i criteri relativi sono pericolosi per P28.
+### 6.2 Truncated Newton
+
+**Iter, CG e tempo sui successi**:
+
+| problem | forcing     | rho | n_success | mean_iter | mean_cg | mean_time (s) |
+|---------|-------------|-----|-----------|-----------|---------|---------------|
+| P16     | quadratic   | 0.5 | 21        | **17.3**  | **648** | **1.58**      |
+| P16     | quadratic   | 0.8 | 21        | 20.6      | 619     | 1.27          |
+| P16     | superlinear | 0.5 | 22        | 19.6      | 1238    | 4.02          |
+| P16     | superlinear | 0.8 | 22        | 25.9      | 947     | 3.32          |
+| P28     | quadratic   | 0.5 | 15        | 26.5      | 27.5    | 9.46          |
+| P28     | quadratic   | 0.8 | 15        | 26.5      | 27.5    | 9.56          |
+| P28     | superlinear | 0.5 | 13        | 23.0      | 23.8    | 4.14          |
+| P28     | superlinear | 0.8 | 13        | 23.0      | 23.8    | 3.57          |
+
+**Success rate per (problem, n, forcing, rho)**:
+
+| problem, n  | quad ρ=0.5 | quad ρ=0.8 | super ρ=0.5 | super ρ=0.8 |
+|-------------|------------|------------|-------------|-------------|
+| P16, 2      | 1.00       | 1.00       | 1.00        | 1.00        |
+| P16, 1000   | 1.00       | 1.00       | 1.00        | 1.00        |
+| P16, 10000  | 1.00       | 1.00       | 1.00        | 1.00        |
+| P16, 100000 | 0.50       | 0.50       | 0.67        | 0.67        |
+| P28, 2      | 1.00       | 1.00       | 1.00        | 1.00        |
+| P28, 1000   | 1.00       | 1.00       | 1.00        | 1.00        |
+| P28, 10000  | 0.50       | 0.50       | 0.17        | 0.17        |
+| P28, 100000 | 0          | 0          | 0           | 0           |
+
+**Conclusioni TN**:
+1. **Su P16**, quadratic + ρ=0.5 è il best: 17.3 iter, 648 CG totali, 1.58s.
+   Superlinear costa di più (1238 CG totali, 4s) ma vince in success rate a
+   n=100000 (0.67 vs 0.50). Trade-off: quadratic per velocità, superlinear
+   per robustezza alle dimensioni estreme.
+2. **Su P28**, quadratic ha success rate maggiore a n=10000 (0.50 vs 0.17 per
+   superlinear) — la convergenza accurata vicino al minimo è essenziale per
+   la convergenza outer su questo problema.
+3. **ρ**: su P16, ρ=0.5 dà 17.3 iter vs 20.6 iter con ρ=0.8 (quadratic) — la
+   preferenza per ρ=0.5 si manifesta solo su problemi con Hessiana
+   "ben dispersa" (P16). Su P28, ρ è inerte.
+
+**Best TN scelto**: forcing = quadratic, ρ = 0.5 (vince aggregato in iter,
+CG e success P28; perde solo per success rate P16 a n=100000 dove superlinear
+è marginalmente meglio).
+
+### 6.3 Verdetto pratico per produzione
+
+| Metodo | Default consigliato | Note |
+|--------|--------------------|------|
+| MN     | β=1e-3, ρ=0.5       | Vince nettamente su P16 (fattore 10x in iter), neutro su P28. |
+| TN     | forcing=quadratic, ρ=0.5 | Vince su P16 (17 iter) e P28 (success +8 punti). Considerare superlinear per P16 a n estremamente grandi. |
+
+Per gli stopping criteria, vedi documento dedicato
+[Stopping_criteria_explanation.md](Stopping_criteria_explanation.md).
