@@ -214,6 +214,7 @@ def truncated_newton(f, x0, stopping,
     history = []
     cg_iters_total = 0
     neg_curv_count = 0
+    n_backtrack_total = 0
     success = False
     stop_reason = "max_iter"
     k_iter = 0
@@ -270,10 +271,11 @@ def truncated_newton(f, x0, stopping,
                 break
 
             # 2.3: Armijo backtracking + update
-            alpha, _ = armijo_backtracking(f, x, fx, g, p,
-                                           alpha0=alpha0, c1=c1, rho=rho,
-                                           max_iter=max_iter_backtrack,
-                                           t_start=t_start, time_limit=time_limit)
+            alpha, n_bt = armijo_backtracking(f, x, fx, g, p,
+                                              alpha0=alpha0, c1=c1, rho=rho,
+                                              max_iter=max_iter_backtrack,
+                                              t_start=t_start, time_limit=time_limit)
+            n_backtrack_total += n_bt
             if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
                 stop_reason = "time_limit"
                 break
@@ -315,6 +317,7 @@ def truncated_newton(f, x0, stopping,
         'stop_reason': stop_reason,
         'cg_iters_total': cg_iters_total,
         'neg_curvature_count': neg_curv_count,
+        'n_backtrack_total': n_backtrack_total,
         'elapsed_s': time.perf_counter() - t_start,
     }
     if return_history:

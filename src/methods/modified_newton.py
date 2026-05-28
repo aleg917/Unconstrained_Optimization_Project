@@ -176,6 +176,7 @@ def modified_newton(f, x0, stopping,
     x = np.asarray(x0, dtype=float).copy()
     history = []
     n_chol_total = 0
+    n_backtrack_total = 0
     success = False
     stop_reason = "max_iter"
     k_iter = 0
@@ -217,10 +218,11 @@ def modified_newton(f, x0, stopping,
                 p = sla.cho_solve((R_or_diag, False), -g)
 
             # 2.3: Armijo backtracking + update
-            alpha, _ = armijo_backtracking(f, x, fx, g, p,
-                                           alpha0=alpha0, c1=c1, rho=rho,
-                                           max_iter=max_iter_backtrack,
-                                           t_start=t_start, time_limit=time_limit)
+            alpha, n_bt = armijo_backtracking(f, x, fx, g, p,
+                                              alpha0=alpha0, c1=c1, rho=rho,
+                                              max_iter=max_iter_backtrack,
+                                              t_start=t_start, time_limit=time_limit)
+            n_backtrack_total += n_bt
             if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
                 stop_reason = "time_limit"
                 break
@@ -259,6 +261,7 @@ def modified_newton(f, x0, stopping,
         'success': success,
         'stop_reason': stop_reason,
         'n_chol_adjustments_total': n_chol_total,
+        'n_backtrack_total': n_backtrack_total,
         'elapsed_s': time.perf_counter() - t_start,
     }
     if return_history:
