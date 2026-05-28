@@ -6,6 +6,56 @@ sui problemi P16 (Banded Trigonometric) e P28 (Variably Dimensioned).
 
 ---
 
+## 0. Conformità con le specifiche del lab
+
+Per scegliere quali parametri *fissare* e quali *tunare*, ci siamo riferiti
+a due fonti del corso:
+
+1. **Lecture notes**: `NO4LSP_DellaSanta_2526.pdf`, §6 (Newton with
+   Backtracking) e §7 (Inexact Newton, esercizio 7.4 su Rosenbrock 100D).
+2. **Script MATLAB del Lab 13**: codice effettivamente eseguito dalla
+   docente — fonte autorevole quando diverge dal PDF teorico.
+
+### 0.1 Allineamenti
+
+| Parametro      | Lab CODE        | Nostro                       | Status |
+|----------------|-----------------|------------------------------|--------|
+| `tolgrad`      | 10⁻⁸            | 10⁻⁸                         | ✓      |
+| `c1` (Armijo)  | 10⁻⁴            | 10⁻⁴                         | ✓      |
+| `rho` default  | 0.8             | {0.5, 0.8}                   | ✓      |
+| `kmax`         | 1000            | 1000                         | ✓      |
+| `btmax`        | 50              | 50                           | ✓      |
+| Starting pts   | 1 det + 5 rand  | 1 det + 5 rand               | ✓      |
+| Forcing terms  | linear/superlinear/quadratic | identici          | ✓      |
+| Stop criterion | `‖∇f‖_2 ≤ Ftol` | `GradNormAbsolute(tol=1e-8)` | ✓      |
+| Box random pts | `[x_bar-1, x_bar+1]^n` (assignment) | `[x_bar-1, x_bar+1]^n` | ✓      |
+
+> **Nota su `kmax`**: il PDF teorico (§7.4) dichiara `kmax=5000`, ma lo
+> script effettivo del Lab 13 usa `kmax=1000`. Seguiamo il codice
+> esistente.
+
+### 0.2 Deviazioni minori (motivate)
+
+| Parametro       | Lab CODE | Nostro     | Motivo |
+|-----------------|----------|------------|--------|
+| `cg_max_iter` (TN) | `n/2` | `None` (=n) | Fattore 2 di differenza; il CG converge molto prima di n iter in pratica, quindi la differenza è trascurabile su problemi grandi. |
+| Griglia `rho`   | esplora {0.9, 0.75, 0.5, 0.25, 0.1} (visualizzazione 2D nei labs); usa 0.8 come default 100D | {0.5, 0.8} | Il range esteso è per visualizzazione; per tuning numerico il lab fissa 0.8. Noi testiamo 0.8 (default) + 0.5 (alternativo). |
+| Seed RNG        | `rng(42)` (lab) | 323334 (team-specific) | Da assignment: `seed = min(student_IDs)`. |
+
+### 0.3 Estensioni nostre (oltre lo scope del lab)
+
+- **Modified Newton con `τ`-adjustment** (Cholesky correction): il PDF
+  (§6.1) menziona `B_k := H_k + Correction` ma rimanda a riferimento
+  esterno [2]. La nostra implementazione (Cholesky con `τ` raddoppiato
+  finché la fattorizzazione riesce) è additiva. Il tuning di **`beta`**
+  (perturbazione iniziale di `τ`) è interamente nostro.
+- **Dimensioni**: lab fa Rosenbrock 100D; noi P16/P28 con n ∈
+  {2, 10³, 10⁴, 10⁵}.
+- **6 starting points** (1 deterministic + 5 random) per stabilità
+  statistica vs il singolo `x⁰=0` del lab.
+
+---
+
 ## 1. Armijo Backtracking — Analisi Approfondita
 
 La line search di Armijo con backtracking è **condivisa** tra MN e TN. I suoi

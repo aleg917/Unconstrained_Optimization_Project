@@ -4,26 +4,57 @@ Documento che motiva il passaggio del criterio di stop usato nella Phase 1
 (grid search dei parametri MN/TN) da `GradNormAbsolute(tol=1e-4)` a
 `GradNormAbsolute(tol=1e-8)`.
 
-## 1. Il problema
+## 1. Convention del corso (PDF + lab MATLAB + slide)
 
-Il criterio di stop fissato in Phase 1 serve solo a dichiarare "questa run
-è convergente" e a permettere il ranking dei parametri tramite
-`success_rate`/`mean_iter`. Lo stopping criterion *non* altera la traiettoria
-di ottimizzazione, ma determina **quando guardiamo** la traiettoria.
+Il criterio scelto è la combinazione canonica della professoressa,
+documentata in tre fonti convergenti:
 
-La scelta originaria `tol=1e-4` (banda "rough") era pragmatica: dichiariamo
-successo appena `||∇f|| ≤ 10⁻⁴`, evitando di sprecare iterazioni nella zona
-finale a convergenza già consolidata. Quanto è ragionevole questa scelta?
+- **PDF lecture notes** (`NO4LSP_DellaSanta_2526.pdf`, esercizio 7.4 §7):
+  raccomanda esplicitamente `tolgrad = 10⁻⁸` per il tuning di Rosenbrock
+  100D.
 
-La relazione locale tra gradiente e distanza dal minimo per Newton è:
-$$ \|x_k - x^*\| \approx \kappa(H^*) \cdot \|\nabla f(x_k)\| $$
+- **Lab MATLAB del Lab 13** (script su Rosenbrock 100D):
+  ```matlab
+  while k < kmax && normFk >= Ftol
+  ```
+  dove `normFk = norm(F(xk))`, `Ftol = 1e-8`. Per ottimizzazione
+  `F = ∇f`, quindi il criterio è $\|\nabla f(x_k)\|_2 \leq \texttt{Ftol}$
+  — **norma euclidea assoluta del gradiente**.
 
-Quindi `||g||=10⁻⁴` corrisponde a una distanza relativamente "comoda" dal
-minimo, non a una convergenza accurata. Per problemi mal-condizionati la
-distanza può essere significativamente più grande di `10⁻⁴`. Stiamo
-**dichiarando vittoria troppo presto**.
+- **Slide teoriche** (lezioni frontali): valori tipici per la tolleranza
+  in doppia precisione:
+  - $10^{-4}$ — rough precision
+  - $10^{-8}$ — **good solution**
+  - $10^{-12}$ — very good solution ("very demanding and quite often
+    unnecessary")
 
-## 2. Sensitivity check (prova empirica)
+Per il tuning Phase 1 usiamo `Ftol = 10⁻⁸` (banda "good"): è la convention
+standard del corso, allineata con il valore esatto usato dalla docente
+nello script del lab.
+
+## 2. Perché non tol=1e-4
+
+Il valore inizialmente usato (`tol=1e-4`) era pragmatico ma — come emerge
+dal sensitivity check qui sotto — **troppo permissivo**: dichiarava successo
+troppo presto, nascondendo la differenza fra configurazioni robuste e
+configurazioni fragili. Il valore "good solution" (1e-8) della slide è
+quello giusto per il tuning.
+
+### 2.1 Caveat sulla scala con n (discusso e accettato)
+
+La norma euclidea $\|g\|_2 \approx c \cdot \sqrt{n}$ per componenti di
+ordine $c$. Quindi richiedere $\|g\|_2 \leq 10^{-8}$ su $n=100\,000$
+corrisponde a $\max_i |g_i| \lesssim 3 \cdot 10^{-11}$ — più stretto che
+chiedere lo stesso valore su $n=2$.
+
+Abbiamo valutato alternative scale-invariant (norma infinito; step
+relativo `||Δx||/||x||` come da slide 2 teoria), ma la **convention del
+corso usa la norma 2 assoluta**, quindi manteniamo questa scelta. Le
+conseguenze osservate (stagnazione su n grande per config fragili) sono
+**informazione utile**, non artefatto: la fragilità è una proprietà reale
+del metodo a fronte di un criterio richiesto in modo uniforme.
+
+## 3. Sensitivity check (prova empirica)
 
 Per misurare l'impatto della scelta della tolleranza sul ranking dei
 parametri, abbiamo eseguito una run mirata: 1 run per ciascuna delle 4
@@ -32,7 +63,7 @@ config MN e 4 config TN, sul punto `x_bar` di tre celle rappresentative
 estratto dalla `history` il numero di iterazioni necessario a scendere sotto
 le soglie `10⁻⁴`, `10⁻⁸`, `10⁻¹²`.
 
-### 2.1 Modified Newton
+### 3.1 Modified Newton
 
 | config         | iter ≤ 10⁻⁴ | iter ≤ 10⁻⁸ | iter ≤ 10⁻¹² | final ‖g‖ (max_iter=1000)  |
 |----------------|-------------|-------------|--------------|----------------------------|
@@ -47,7 +78,7 @@ a `10⁻¹²`, mentre `β=10⁻³` raggiunge praticamente la precisione macchina
 Il ranking è qualitativamente lo stesso, ma a `tol=10⁻⁴` il margine reale è
 **completamente invisibile**.
 
-### 2.2 Truncated Newton — qui il ranking si ribalta
+### 3.2 Truncated Newton — qui il ranking si ribalta
 
 | config              | iter@10⁻⁴ | iter@10⁻⁸ (P16,1000)  | iter@10⁻⁸ (P16,10000) | iter@10⁻⁸ (P28,1000) |
 |---------------------|-----------|------------------------|------------------------|----------------------|
@@ -70,7 +101,7 @@ Il ranking è qualitativamente lo stesso, ma a `tol=10⁻⁴` il margine reale �
 realmente robusto sulla zona finale della convergenza, e che `ρ=0.8` è
 qualitativamente preferibile. **Il ranking *cambia* cambiando tolleranza**.
 
-## 3. Conseguenza: rerun di Phase 1 con `tol=10⁻⁸`
+## 4. Conseguenza: rerun di Phase 1 con `tol=10⁻⁸`
 
 In base all'evidenza del sensitivity check:
 
@@ -99,7 +130,7 @@ criterio più stretto: `GradNormAbsolute(tol=10⁻⁸)` (banda "good").
   tempo è già "consumata" dalle run che falliscono per time_limit, che non
   cambia tra `10⁻⁴` e `10⁻⁸`).
 
-## 4. Cosa aggiornare dopo il rerun
+## 5. Cosa aggiornare dopo il rerun
 
 1. **`docs/tuning_analysis.md` §6**: ri-estrarre il ranking dai CSV
    aggiornati. Probabili aggiornamenti:
@@ -117,7 +148,7 @@ criterio più stretto: `GradNormAbsolute(tol=10⁻⁸)` (banda "good").
    casi in cui `ρ=0.8` ha effettivamente ribaltato il best (validazione del
    sensitivity check).
 
-## 5. Risultati post-rerun (da popolare)
+## 6. Risultati post-rerun (da popolare)
 
 *Da completare dopo il rerun del notebook con i nuovi CSV.*
 

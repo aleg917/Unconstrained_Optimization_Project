@@ -70,15 +70,24 @@ Best Truncated Newton:
   - Overall / Best P28: forcing=quadratic, rho=0.5 → 75.0% success, 21.1 avg iter
   - Best P16: forcing=superlinear, rho=0.5 → 91.7% success_P16, 19.6 iter_P16
 
-## Tuning Decisions (see docs/tuning_analysis.md)
+## Tuning Decisions (see docs/tuning_analysis.md §0)
+
+Fixed parameters follow the course lab specs (NO4LSP_DellaSanta_2526.pdf §7.4
++ Lab 13 MATLAB script): tolgrad=1e-8, c1=1e-4, max_iter_backtrack=50,
+kmax=1000, alpha0=1.0. Forcing terms (linear/superlinear/quadratic) identical
+to lab §7.1.
 
 **Fixed parameters (both algorithms):** alpha0=1.0, c1=1e-4, max_iter_backtrack=50
 **Fixed MN:** max_tau_iter=100
-**Fixed TN:** cg_max_iter=None
+**Fixed TN:** cg_max_iter=None (lab uses n/2; difference negligible — CG
+converges well before n iter)
 
 **Reduced grid (8 combos):**
 - MN: beta in {1e-6, 1e-3} x rho in {0.5, 0.8}
 - TN: forcing in {'superlinear', 'quadratic'} x rho in {0.5, 0.8}
+
+Note: Modified Newton with τ-adjustment is our extension (lab §6.1 mentions
+"H + Correction" but defers to external reference). All β tuning is ours.
 
 ## Conventions
 
