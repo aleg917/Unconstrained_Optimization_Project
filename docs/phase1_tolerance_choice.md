@@ -114,14 +114,16 @@ criterio più stretto: `GradNormAbsolute(tol=10⁻⁸)` (banda "good").
 
 ### Dettagli operativi del rerun
 
-- **Notebook**: `fine_tuning.ipynb`, celle 12 (MN grid) e 16 (TN grid) — il
-  criterio è ora `GradNormAbsolute(tol=1e-8)` (aggiornato in questo turno).
-- **Time limit**: 60 s per run, **invariato** rispetto al run precedente.
-  Le run che già fallivano per `time_limit` (P28 a n ≥ 10000, P16 a n=100000)
-  continueranno a fallire — non è un nuovo problema, è una caratteristica
-  reale della griglia che documentiamo nella nuova analisi. La sola
-  differenza sarà che alcune run che a `tol=10⁻⁴` finivano in pochi secondi
-  potranno ora ravvicinarsi al limite (Newton ha convergenza quadratica:
+- **Notebook**: `fine_tuning.ipynb`, celle MN grid e TN grid — il criterio è
+  `GradNormAbsolute(tol=1e-8)`.
+- **Griglia ampliata nel rerun**: MN `β∈{1e-6,1e-3,1e-2}×ρ∈{0.5,0.75,0.9}`
+  (9 combo), TN `forcing∈{superlinear,quadratic}×ρ∈{0.5,0.75,0.9}` (6 combo);
+  `max_iter=5000`.
+- **Time limit**: ridotto a **20 s** per run nel rerun (era 60 s). Le run che
+  già fallivano per `time_limit` (P28 a n ≥ 10000, P16 a n=100000) falliscono
+  comunque — non è un nuovo problema, è una caratteristica reale della
+  griglia. Rispetto a `tol=10⁻⁴`, alcune run che prima finivano in pochi
+  secondi ora arrivano un po' più in là (Newton ha convergenza quadratica:
   ~2 iter in più per scendere a `10⁻⁸`).
 - **Output**: i nuovi CSV sovrascriveranno `results/fine_tuning_modified_newton.csv`
   e `..._truncated_newton.csv`. Tutte le tabelle e analisi a valle leggono
@@ -134,10 +136,12 @@ criterio più stretto: `GradNormAbsolute(tol=10⁻⁸)` (banda "good").
 
 1. **`docs/tuning_analysis.md` §6**: ri-estrarre il ranking dai CSV
    aggiornati. Probabili aggiornamenti:
-   - MN: best parametri **invariati** (`β=10⁻³, ρ=0.8`), ma con margini più
-     grandi su `mean_iter`.
-   - TN: best per P16 / Overall potrebbe spostarsi a `ρ=0.8`. Da
-     verificare numericamente.
+   - MN: best **cambiato** → `β=10⁻², ρ=0.5` (la griglia è stata ampliata
+     aggiungendo `β=10⁻²` e `ρ∈{0.5,0.75,0.9}`; `β=10⁻²` vince perché fa
+     convergere P16 a n=1000, dove `β≤10⁻³` falliva).
+   - TN: best Overall/P16 spostato a `ρ=0.9` (forcing `quadratic`). Confermata
+     la direzione del sensitivity check (ρ più alto è più robusto), ma il punto
+     ottimo è 0.9, non 0.8.
 
 2. **`CLAUDE.md`**: aggiornare il blocco "Full-mode Results" con i nuovi
    best.
@@ -148,16 +152,28 @@ criterio più stretto: `GradNormAbsolute(tol=10⁻⁸)` (banda "good").
    casi in cui `ρ=0.8` ha effettivamente ribaltato il best (validazione del
    sensitivity check).
 
-## 6. Risultati post-rerun (da popolare)
+## 6. Risultati post-rerun
 
-*Da completare dopo il rerun del notebook con i nuovi CSV.*
+Rerun eseguito con `GradNormAbsolute(tol=1e-8)`, `time_limit=20s`,
+`max_iter=5000`, griglia ampliata (MN 3×3 = 9 combo, TN 2×3 = 6 combo).
+CSV in `results/fine_tuning_{modified,truncated}_newton.csv`.
+MN: 378 run, 54.0% success. TN: 288 run, 55.9% success.
 
-| Metodo | Best Overall (tol=10⁻⁸) | Best P16  | Best P28 | Δ vs tol=10⁻⁴ |
-|--------|--------------------------|-----------|----------|---------------|
-| MN     | (da popolare)            |           |          |               |
-| TN     | (da popolare)            |           |          |               |
+| Metodo | Best Overall (tol=10⁻⁸)  | Best P16          | Best P28          | Δ vs tol=10⁻⁴ (griglia vecchia)        |
+|--------|--------------------------|-------------------|-------------------|----------------------------------------|
+| MN     | β=10⁻², ρ=0.5 (61.9%)    | β=10⁻², ρ=0.5     | β=10⁻², ρ=0.9     | era β=10⁻³, ρ=0.8 → ora β=10⁻², ρ=0.5  |
+| TN     | quadratic, ρ=0.9 (62.5%) | quadratic, ρ=0.9  | quadratic, ρ=0.5  | era quadratic, ρ=0.5 → ora ρ=0.9       |
 
 ### Confronto sintetico
 
-(Da scrivere: 2-3 frasi che riassumono come è cambiato il ranking, citando
-le righe più discriminanti.)
+Il ranking cambia in modo sostanziale rispetto a `tol=10⁻⁴`:
+- **MN**: l'aggiunta di `β=10⁻²` alla griglia ribalta la scelta. Con `tol=10⁻⁸`
+  il discriminante è la cella **(P16, n=1000)**: `β=10⁻²` la fa convergere
+  (success 1.00) mentre `β≤10⁻³` resta a 0.17 — da qui il salto di success
+  aggregato (61.9% vs 50.0%). `ρ` resta quasi inerte (le tre ρ danno lo stesso
+  success aggregato; differenza di ~0.2 iter).
+- **TN**: confermata la direzione del sensitivity check (ρ più alto = più
+  robusto sulla coda di convergenza), ma il punto migliore è **ρ=0.9**, non 0.8:
+  con forcing `quadratic` porta P16 a n=1000 e n=10000 a success 1.00. Su P28
+  resta meglio `ρ=0.5` (P28 è ρ-inerte: fallisce comunque per `time_limit` da
+  n=10000 in su).

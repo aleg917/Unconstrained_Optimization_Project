@@ -61,30 +61,34 @@ Key params: `alpha0, c1, rho, max_iter_backtrack` (Armijo) + `forcing, cg_max_it
 `armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5, max_iter=50)`
 - Condition: f(x + alpha*d) <= f(x) + c1*alpha*<g, d>
 
-## Full-mode Results (DIMS=[2,1000,10000,100000], 6 starts, 60s time_limit)
+## Full-mode Results (DIMS=[2,1000,10000,100000], 6 starts, 20s time_limit, max_iter=5000, stop=GradNormAbsolute(1e-8))
 
 Selection hierarchy: avg_success → avg_iter → avg_time (avg_grad sanity check only).
 
-Best Modified Newton (Overall = Best P16 = Best P28): beta=1e-3, rho=0.8 → 73.8% success, 15.2 avg iter, 0.99s
-Best Truncated Newton:
-  - Overall / Best P28: forcing=quadratic, rho=0.5 → 75.0% success, 21.1 avg iter
-  - Best P16: forcing=superlinear, rho=0.5 → 91.7% success_P16, 19.6 iter_P16
+Best Modified Newton: beta=1e-2, rho=0.5 → 61.9% avg success, 14.9 avg iter, 1.13s
+  - Overall = Best P16 (success_P16=58.3%, iter_P16=8.8)
+  - Best P28: beta=1e-2, rho=0.9 (success_P28=66.7%, iter_P28=21.5) — but β/ρ are inert on P28
+  - beta=1e-2 wins because it lets P16 n=1000 converge (success 1.0 vs 0.17 for beta=1e-6/1e-3)
+Best Truncated Newton: forcing=quadratic, rho=0.9 → 62.5% avg success, 22.9 avg iter, 0.28s
+  - Overall = Best P16 (success_P16=75.0%, iter_P16=23.9)
+  - Best P28: forcing=quadratic, rho=0.5 (success_P28=50.0%, iter_P28=21.5)
+  - rho=0.9 now wins overall (vs old rho=0.5): more robust on P16 at larger n
 
 ## Tuning Decisions (see docs/tuning_analysis.md §0)
 
 Fixed parameters follow the course lab specs (NO4LSP_DellaSanta_2526.pdf §7.4
 + Lab 13 MATLAB script): tolgrad=1e-8, c1=1e-4, max_iter_backtrack=50,
-kmax=1000, alpha0=1.0. Forcing terms (linear/superlinear/quadratic) identical
-to lab §7.1.
+max_iter=5000 (PDF §7.4 value; lab script uses 1000), alpha0=1.0. Forcing
+terms (linear/superlinear/quadratic) identical to lab §7.1.
 
 **Fixed parameters (both algorithms):** alpha0=1.0, c1=1e-4, max_iter_backtrack=50
 **Fixed MN:** max_tau_iter=100
 **Fixed TN:** cg_max_iter=None (lab uses n/2; difference negligible — CG
 converges well before n iter)
 
-**Reduced grid (8 combos):**
-- MN: beta in {1e-6, 1e-3} x rho in {0.5, 0.8}
-- TN: forcing in {'superlinear', 'quadratic'} x rho in {0.5, 0.8}
+**Grid (15 combos total):**
+- MN (9): beta in {1e-6, 1e-3, 1e-2} x rho in {0.5, 0.75, 0.9}
+- TN (6): forcing in {'superlinear', 'quadratic'} x rho in {0.5, 0.75, 0.9}
 
 Note: Modified Newton with τ-adjustment is our extension (lab §6.1 mentions
 "H + Correction" but defers to external reference). All β tuning is ours.
@@ -94,5 +98,5 @@ Note: Modified Newton with τ-adjustment is our extension (lab §6.1 mentions
 - Python 3.12+, NumPy/SciPy
 - Exact derivatives always available; FD variants for comparison
 - Stopping criterion is pluggable via StoppingCriterion interface
-- TIME_LIMIT = 60s per run
+- TIME_LIMIT = 20s per run; MAX_ITER = 5000
 - Seed for random starting points: 323334

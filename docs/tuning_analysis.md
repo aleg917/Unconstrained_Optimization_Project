@@ -1,8 +1,8 @@
 # Analisi Teorica per il Tuning dei Parametri
 
-Obiettivo: giustificare teoricamente una griglia di tuning ridotta (da 120 a 8
-configurazioni) per i metodi Modified Newton (MN) e Truncated Newton (TN),
-sui problemi P16 (Banded Trigonometric) e P28 (Variably Dimensioned).
+Obiettivo: giustificare teoricamente una griglia di tuning ridotta (da 120 a
+9 configurazioni MN + 6 TN = 15) per i metodi Modified Newton (MN) e Truncated
+Newton (TN), sui problemi P16 (Banded Trigonometric) e P28 (Variably Dimensioned).
 
 ---
 
@@ -22,24 +22,25 @@ a due fonti del corso:
 |----------------|-----------------|------------------------------|--------|
 | `tolgrad`      | 10⁻⁸            | 10⁻⁸                         | ✓      |
 | `c1` (Armijo)  | 10⁻⁴            | 10⁻⁴                         | ✓      |
-| `rho` default  | 0.8             | {0.5, 0.8}                   | ✓      |
-| `kmax`         | 1000            | 1000                         | ✓      |
+| `rho` default  | 0.8             | {0.5, 0.75, 0.9}             | ✓      |
+| `kmax`         | 1000 (PDF 5000) | 5000                         | ~      |
 | `btmax`        | 50              | 50                           | ✓      |
 | Starting pts   | 1 det + 5 rand  | 1 det + 5 rand               | ✓      |
 | Forcing terms  | linear/superlinear/quadratic | identici          | ✓      |
 | Stop criterion | `‖∇f‖_2 ≤ Ftol` | `GradNormAbsolute(tol=1e-8)` | ✓      |
 | Box random pts | `[x_bar-1, x_bar+1]^n` (assignment) | `[x_bar-1, x_bar+1]^n` | ✓      |
 
-> **Nota su `kmax`**: il PDF teorico (§7.4) dichiara `kmax=5000`, ma lo
-> script effettivo del Lab 13 usa `kmax=1000`. Seguiamo il codice
-> esistente.
+> **Nota su `kmax`**: il PDF teorico (§7.4) dichiara `kmax=5000`, mentre lo
+> script del Lab 13 usa `kmax=1000`. Usiamo **5000** (valore del PDF): con
+> `tol=1e-8` alcune run hanno bisogno di più iterazioni e `1000` le troncava
+> prematuramente.
 
 ### 0.2 Deviazioni minori (motivate)
 
 | Parametro       | Lab CODE | Nostro     | Motivo |
 |-----------------|----------|------------|--------|
 | `cg_max_iter` (TN) | `n/2` | `None` (=n) | Fattore 2 di differenza; il CG converge molto prima di n iter in pratica, quindi la differenza è trascurabile su problemi grandi. |
-| Griglia `rho`   | esplora {0.9, 0.75, 0.5, 0.25, 0.1} (visualizzazione 2D nei labs); usa 0.8 come default 100D | {0.5, 0.8} | Il range esteso è per visualizzazione; per tuning numerico il lab fissa 0.8. Noi testiamo 0.8 (default) + 0.5 (alternativo). |
+| Griglia `rho`   | esplora {0.9, 0.75, 0.5, 0.25, 0.1} (visualizzazione 2D nei labs); usa 0.8 come default 100D | {0.5, 0.75, 0.9} | Tre valori che coprono backtracking aggressivo (0.5), intermedio (0.75) e fine (0.9). |
 | Seed RNG        | `rng(42)` (lab) | 323334 (team-specific) | Da assignment: `seed = min(student_IDs)`. |
 
 ### 0.3 Estensioni nostre (oltre lo scope del lab)
@@ -152,18 +153,19 @@ che rho=0.5 troverebbe), riducendo il numero totale di iterazioni esterne.
 Questo suggerisce che la direzione TN (inesatta) beneficia di una ricerca
 più fine dello step size. Vale la pena testare entrambi.
 
-**Aggiornamento full-mode** (DIMS=[2,1000,10000,100000], 6 starting points):
-- MN: rho non discrimina (mean_iter=130.4 con rho=0.5, 130.4 con rho=0.8 a beta=1e-3).
-  L'effetto del passo iniziale e del backtracking aggressivo è trascurabile.
-- TN: rho=0.5 è leggermente migliore (mean_iter=146.1 vs 149.7 a forcing=quadratic).
-  In particolare su P16: 18.2 iter (rho=0.5) vs 25.7 iter (rho=0.8) — la preferenza
-  per rho=0.5 si manifesta nettamente al crescere della dimensione. Inversione
-  rispetto al quick-mode.
+**Aggiornamento full-mode** (DIMS=[2,1000,10000,100000], 6 starting points,
+tol=1e-8, time_limit=20s):
+- MN: rho **non discrimina** il success aggregato — le tre rho (0.5/0.75/0.9)
+  danno lo stesso 61.9% (a beta=1e-2) e differiscono di ~0.2 iter. Su P28 rho è
+  del tutto inerte (il passo unitario è sempre accettato → 0 backtrack).
+- TN: rho **conta** ed è invertito rispetto al quick-mode: rho=0.9 è il migliore
+  in aggregato (success 62.5%) perché su P16 a n=1000 e n=10000 porta a success
+  1.00, mentre rho=0.5 si ferma a 0.5. La granularità fine paga sulla coda di P16.
 
-La spiegazione è che il passo unitario alpha=1 viene accettato dall'Armijo nella
-grande maggioranza delle iterazioni (specialmente vicino alla soluzione, dove il
-modello quadratico è accurato). Le rare riduzioni di passo non beneficiano della
-granularità fine di rho=0.8; conviene il halving aggressivo di rho=0.5.
+La spiegazione: per MN il passo unitario alpha=1 è accettato quasi sempre (Armijo
+soddisfatto col modello quadratico accurato), quindi rho è quasi irrilevante; per
+TN, dove la direzione è inesatta, una ricerca più fine (rho=0.9) recupera
+robustezza sui casi P16 a dimensione media-alta.
 
 ### 1.4 max_iter_backtrack = 50 — FISSO
 
@@ -209,7 +211,7 @@ L'unico parametro da testare è $\rho \in \{0.5, 0.8\}$.
 
 ## 2. Modified Newton — Parametri Specifici
 
-### 2.1 beta — DA TUNARE {1e-6, 1e-3}
+### 2.1 beta — DA TUNARE {1e-6, 1e-3, 1e-2}
 
 Quando l'Hessiana $H_k$ non è definita positiva, il Modified Newton calcola
 $B_k = H_k + \tau_k I$ dove $\tau_k$ parte da $\beta$ (o da
@@ -221,7 +223,8 @@ $\beta$ controlla l'**aggressività della perturbazione iniziale**:
 | beta | Effetto |
 |------|---------|
 | 1e-6 | Perturbazione minima → $B_k \approx H_k$ → direzione vicina a Newton puro. Ma servono più raddoppi per superare l'indefinitezza. |
-| 1e-3 | Perturbazione più forte → $B_k$ più regolarizzata → direzione più verso steepest descent. Meno raddoppi necessari. |
+| 1e-3 | Perturbazione intermedia → $B_k$ un po' più regolarizzata. |
+| 1e-2 | Perturbazione iniziale più forte → $\tau$ parte già alto, meno raddoppi; **vincente** (§6.1): fa convergere P16 a n=1000. |
 
 **Analisi per problema**:
 
@@ -258,25 +261,27 @@ punto corrente si allontani molto da $\bar{x}$). **$\beta$ è irrilevante per P2
 marginale. Testiamo $\{10^{-6}, 10^{-3}\}$ per completezza, ma ci aspettiamo
 poca differenza.
 
-**Aggiornamento full-mode — smentita parziale**: il quick-mode aveva mascherato
-l'effetto. Sui CSV full-mode (`results/fine_tuning_modified_newton.csv`):
+**Aggiornamento full-mode (tol=1e-8)**: ampliando la griglia con $\beta=10^{-2}$
+emerge un effetto molto più forte del previsto. Success rate dai CSV
+(`results/fine_tuning_modified_newton.csv`):
 
-| beta | mean_iter (aggregato) | mean_iter P16 | mean_iter P28 | success aggreg. |
-|------|----------------------|---------------|---------------|-----------------|
-| 1e-6 | 168.9                | 284.4         | 14.3          | 0.726           |
-| 1e-3 | 130.4 (**-23%**)     | 217.7         | 14.3          | 0.738           |
+| beta | success (P16, n=1000) | success P16 aggreg. | success P28 | success aggreg. |
+|------|-----------------------|---------------------|-------------|-----------------|
+| 1e-6 | 0.17                  | 0.375               | 0.667       | 0.500           |
+| 1e-3 | 0.17                  | 0.375               | 0.667       | 0.500           |
+| 1e-2 | **1.00**              | **0.583**           | 0.667       | **0.619**       |
 
-L'effetto è significativo su P16 (~30% iter risparmiate), inesistente su P28
-(coerente con la teoria: $H$ è già SPD al punto iniziale, nessuna modifica
-richiesta). La spiegazione: nelle iterazioni intermedie di P16, $x_k$ si
-allontana dal punto iniziale e $\min(\text{diag}(H))$ può cambiare segno o
-ampiezza. Un $\beta$ iniziale più grande riduce il numero di **raddoppi di
-$\tau$** necessari ad ogni iterazione per ottenere una matrice SPD —
-fattorizzazione di Cholesky più veloce e meno tentativi falliti per step.
+Il discriminante è la cella **(P16, n=1000)**: con $\beta=10^{-2}$ converge
+(success 1.00), con $\beta\le 10^{-3}$ no (0.17, converge solo $\bar{x}$). Su P28
+$\beta$ è del tutto inerte ($H$ è già SPD al punto iniziale → nessuna modifica
+$\tau$). Spiegazione: nelle iterazioni intermedie di P16 $x_k$ si allontana e
+$\min(\text{diag}(H))$ cambia; un $\beta$ iniziale più grande fa partire $\tau$
+già abbastanza alto, riducendo i **raddoppi di $\tau$** per ottenere $B_k$ SPD —
+così converge entro il budget di iterazioni/tempo dove $\beta$ piccolo stagna.
 
-**Verdetto finale**: $\beta = 10^{-3}$ è la scelta consigliata (default in
-`main.ipynb`). $\beta = 10^{-6}$ resta accettabile ma costa il 23% in più di
-iterazioni su P16.
+**Verdetto finale**: $\beta = 10^{-2}$ è la scelta consigliata (default in
+`experiment.ipynb`): vince Overall e su P16. $\beta=10^{-3}/10^{-6}$ falliscono
+(P16, n=1000).
 
 ### 2.2 max_tau_iter = 100 — FISSO
 
@@ -340,30 +345,26 @@ qualità della direzione, che è determinata dalla forcing sequence.
 Il risultato quick-mode conferma: **quadratic è il migliore** (19.9 avg iter
 vs attese più alte per superlinear).
 
-**Aggiornamento full-mode — risultato problema-dipendente**:
+**Aggiornamento full-mode (tol=1e-8, griglia forcing×{0.5,0.75,0.9})**:
 
-| forcing     | rho | success P16 | mean_iter P16 | success P28 | mean_iter P28 |
-|-------------|-----|-------------|---------------|-------------|---------------|
-| superlinear | 0.5 | 0.917       | 19.9          | 0.542       | 274.9         |
-| quadratic   | 0.5 | 0.875       | 18.2          | 0.625       | 273.9         |
+| forcing     | rho | success P16 | iter P16 | success P28 | avg_success |
+|-------------|-----|-------------|----------|-------------|-------------|
+| quadratic   | 0.9 | 0.750       | 23.9     | 0.500       | **0.625**   |
+| superlinear | 0.9 | 0.750       | 30.2     | 0.458       | 0.604       |
+| quadratic   | 0.5 | 0.500       | 16.0     | 0.500       | 0.500       |
+| superlinear | 0.5 | 0.375       | 18.4     | 0.458       | 0.417       |
 
-- Su **P28**, quadratic vince nettamente (success +8 punti percentuali) — la
-  teoria regge: l'Hessiana $I + c\, \mathbf{j}\mathbf{j}^T$ ha 2 cluster di
-  autovalori, CG converge in 2 iterazioni, e una direzione Newton accurata
-  è essenziale per la convergenza outer.
+- **quadratic ≥ superlinear** a parità di ρ (e su P28 quadratic converge più
+  spesso): la teoria regge, l'Hessiana $I + c\,\mathbf{j}\mathbf{j}^T$ di P28
+  richiede una direzione Newton accurata.
+- **ρ alto (0.9)** è decisivo su P16: a ρ=0.5 il success_P16 crolla
+  (0.5 / 0.375), a ρ=0.9 sale a 0.75 per entrambi i forcing — la ricerca fine
+  recupera i casi P16 a n=1000/10000. Costa molte iterazioni CG inner
+  (vedi §3.2), ma entro il time_limit conviene.
 
-- Su **P16** invece superlinear vince in success rate (+4 punti). Il motivo:
-  l'Hessiana diagonale di P16 ha *autovalori molto sparsi* (non 2 cluster), e
-  il CG NON converge in poche iterazioni — anzi, fa ~108 iter inner per
-  ogni iter outer (vedi §3.2). Con quadratic, si richiede una precisione CG
-  altissima vicino alla soluzione → CG fa moltissime iterazioni inner →
-  costo computazionale alto e maggior rischio di mancata convergenza per
-  time_limit. Superlinear richiede meno precisione e completa più velocemente.
-
-**Verdetto finale**: quadratic resta la scelta di default (vince P28 e
-aggregato), ma su problemi con Hessiana "ben dispersa" (autovalori non
-clusterizzati) superlinear può essere preferibile per ragioni di costo
-inner.
+**Verdetto finale**: **quadratic, ρ=0.9** è la scelta di default
+(`experiment.ipynb`): vince Overall e P16. Su P28-only quadratic ρ=0.5 pareggia
+(P28 è ρ-inerte).
 
 ### 3.2 cg_max_iter = None — FISSO (con caveat)
 
@@ -373,15 +374,16 @@ preliminare aveva previsto:
 - P28: CG converge in $\leq 2$ iterazioni (Hessiana = $I + c\,\mathbf{j}\mathbf{j}^T$,
   Krylov subspace di dimensione 2).
 
-**Verifica empirica full-mode (cg_total dai CSV)**:
+**Verifica empirica full-mode (cg dai CSV, best config quadratic ρ=0.9)**:
 
-| Problema | mean_outer_iter | mean_cg_total | CG iter/outer |
-|----------|-----------------|---------------|---------------|
-| P16      | 18.2            | 2074          | **~114**      |
-| P28      | 273.9           | 274.7         | ~1.003        |
+| Problema | iter outer | cg_total | CG iter/outer |
+|----------|-----------|----------|---------------|
+| P16      | 23.9      | ~1359    | **~57**       |
+| P28      | 21.5      | ~22.8    | ~1.06         |
 
 - **P28**: predizione confermata (~1 iter inner per outer).
-- **P16**: predizione **falsa** — il CG fa in media 114 iter inner per outer.
+- **P16**: predizione **falsa** — il CG fa decine di iter inner per outer
+  (~57 nella best config; fino a ~12000 cg_total a superlinear ρ=0.75).
   L'analisi "sistema diagonale banale" era ingenua: il CG non sfrutta la
   diagonalità (è un metodo iterativo generale che vede solo prodotti
   $H \cdot v$). Su una matrice diagonale con autovalori molto sparsi, il
@@ -420,7 +422,7 @@ costo computazionale aggiuntivo nullo grazie all'approccio post-hoc.
 
 ---
 
-## 5. Griglia Ridotta Finale
+## 5. Griglia Finale
 
 ### Parametri fissi (entrambi gli algoritmi)
 
@@ -429,39 +431,26 @@ costo computazionale aggiuntivo nullo grazie all'approccio post-hoc.
 | `alpha0` | 1.0 | Passo Newton naturale, prerequisito per convergenza quadratica |
 | `c1` | 1e-4 | Nocedal-Wright standard; margine 5000:1 sul passo Newton pieno |
 | `max_iter_backtrack` | 50 | Safety parameter; 50 step → α ≈ 10⁻¹⁵ |
+| `max_iter` | 5000 | valore PDF §7.4 (il lab usa 1000; con tol=1e-8 servono più iter) |
 | `max_tau_iter` (MN) | 100 | Safety; mai più di 25 raddoppi necessari |
-| `cg_max_iter` (TN) | None (=n) | CG converge in 1-2 iter per P16/P28 |
+| `cg_max_iter` (TN) | None (=n) | nessun cap; su P16 il CG fa decine di iter (vedi §3.2) |
 
 ### Griglia da testare
 
-**Modified Newton (4 configurazioni):**
+**Modified Newton (9 configurazioni):** beta ∈ {1e-6, 1e-3, 1e-2} × rho ∈ {0.5, 0.75, 0.9}
 
-| Config | beta | rho |
-|--------|------|-----|
-| MN-1 | 1e-6 | 0.5 |
-| MN-2 | 1e-6 | 0.8 |
-| MN-3 | 1e-3 | 0.5 |
-| MN-4 | 1e-3 | 0.8 |
+**Truncated Newton (6 configurazioni):** forcing ∈ {superlinear, quadratic} × rho ∈ {0.5, 0.75, 0.9}
 
-**Truncated Newton (4 configurazioni):**
-
-| Config | forcing | rho |
-|--------|---------|-----|
-| TN-1 | superlinear | 0.5 |
-| TN-2 | superlinear | 0.8 |
-| TN-3 | quadratic | 0.5 |
-| TN-4 | quadratic | 0.8 |
-
-**Totale: 8 configurazioni** (vs 120 nella griglia originale = **93% in meno**).
+**Totale: 15 configurazioni** (vs 120 nella griglia originale = **87.5% in meno**).
 
 ### Stima tempi
 
 Con DIMS = [2, 1000, 10000, 100000], 6 starting points per cella:
 
-- Celle per combo: ~8 (2 problemi × 4 dim, con OOM skip per P28 n=100000 su MN)
-- Run totali: 8 combo × ~8 celle × 6 starts ≈ **384 run**
-- vs originale: 120 × ~8 × 6 ≈ 5760 run
-- **Speedup: ~15x**
+- MN: 9 combo × 42 celle valide = **378 run** (P28 n=100000 escluso per OOM).
+- TN: 6 combo × 48 celle = **288 run** (TN matrix-free → nessun OOM skip).
+- Tempo osservato: ~75 min (MN) + ~65 min (TN); gran parte è "consumata" dalle
+  run che falliscono per time_limit (P28 n≥10000, P16 n=100000).
 
 ---
 
