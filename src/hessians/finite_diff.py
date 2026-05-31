@@ -1,28 +1,7 @@
-"""Hessian approximation via centered finite differences of the exact gradient.
+"""Hessian approximations via centered finite differences of the exact gradient.
 
-Implements the idea from the NO4LSP course slides:
-    H_f(x) = J_{grad f}(x)
-Given the exact gradient grad f, we apply centered FD formulas to compute
-the Jacobian of grad f.  Centered stencil gives O(h^2) accuracy.
-
-Symmetry is enforced via  H <- (H + H^T) / 2  as indicated in the slides.
-
-Three routines:
-
-    hess_fd       — column-by-column assembly (2n gradient evaluations).
-                    General-purpose baseline, used as unit-test reference.
-
-    hess_fd_diag  — CPR single-color case for diagonal Hessians (Problem 16).
-                    A single global perturbation along x +/- h*1 extracts the
-                    entire diagonal, independent of n.
-
-    hv_fd         — matrix-free Hessian-vector product, used by the inner CG
-                    solver of Truncated Newton.  Two gradient calls per Hv.
-
-For each routine the step h has two variants (as required by the assignment):
-    fixed:   h    = 10^{-k}
-    scaled:  h_i  = 10^{-k} * |x_i|  (falls back to 10^{-k} when x_i = 0)
-with k in {4, 8, 12}.
+Step h = 10^{-k}, or 10^{-k}*|x_i| when scaled=True (k typically 4/8/12).
+Centered stencils give O(h^2) accuracy; symmetry is enforced as (H + H^T)/2.
 """
 import time
 
@@ -32,155 +11,179 @@ from ..time_budget import TimeLimitExceeded, _time_budget
 
 
 def _step(x, k, scaled):
-    """Per-component step vector h_i for each direction e_i.
-
-    fixed   -> h_i = 10^{-k}
-    scaled  -> h_i = 10^{-k} * |x_i|  if x_i != 0, else 10^{-k}
-    """
+    """Per-component step h_i: 10**(-k), or 10**(-k)*|x_i| when scaled (x_i != 0)."""
     x = np.asarray(x, dtype=float)
-    h_base = 10.0 ** (-k)
+    h_base = 10.0 ** (-k)                          # base step h = 10^(-k)
     if not scaled:
-        return np.full(x.shape, h_base, dtype=float)
-    h = h_base * np.abs(x)
-    h[h == 0.0] = h_base
+        return np.full(x.shape, h_base, dtype=float)   # same step for every component
+    h = h_base * np.abs(x)                         # scale each step by the size of x_i
+    h[h == 0.0] = h_base                           # where x_i == 0, fall back to the base step
     return h
 
 
 def hess_fd(grad_f, x, k=8, *, scaled=False, symmetrize=True,
             t_start=None, time_limit=None):
-    """Approximate H(x) ~ J_{grad f}(x) column by column (centered, O(h^2)).
+    """Approximate the Hessian H(x) column by column (centered, O(h^2)).
+
+    Each column j is the centered difference of the gradient when only
+    coordinate j is perturbed:
+
+        H[:, j] ~ (grad f(x + h e_j) - grad f(x - h e_j)) / (2 h).
 
     Cost: 2n gradient evaluations.
 
     Parameters
     ----------
-    grad_f     : callable, x -> grad f(x), ndarray (n,)
-    x          : ndarray (n,)
-    k          : step-size exponent (h = 10^{-k})
-    scaled     : if True, h_i = 10^{-k} * |x_i| (falls back when x_i = 0)
-    symmetrize : if True, returns (H + H^T) / 2
-    t_start    : float or None, reference time (time.perf_counter())
-    time_limit : float or None, wall-clock budget in seconds
+    grad_f : callable
+        Gradient map x -> grad f(x), returning an array of length n.
+    x : array_like, shape (n,)
+        Point at which the Hessian is approximated.
+    k : int, default 8
+        Step-size exponent: the base step is h = 10**(-k).
+    scaled : bool, default False
+        If True, h_i = 10**(-k) * |x_i| (falls back to 10**(-k) when x_i == 0).
+    symmetrize : bool, default True
+        If True, return the symmetrized matrix (H + H^T) / 2.
+    t_start : float or None, default None
+        Start time of the wall-clock budget; falls back to the module budget.
+    time_limit : float or None, default None
+        Wall-clock budget in seconds; falls back to the module budget.
 
     Returns
     -------
-    H : ndarray (n, n)
+    H : ndarray, shape (n, n)
+        Approximated Hessian of f at x.
 
     Raises
     ------
-    TimeLimitExceeded if the wall-clock budget is exceeded.
+    TimeLimitExceeded
+        If the wall-clock budget is exceeded while looping over columns.
     """
     x = np.asarray(x, dtype=float)
     n = x.size
-    h = _step(x, k, scaled)
-    H = np.empty((n, n), dtype=float)
+    h = _step(x, k, scaled)               # per-component step vector
+    H = np.empty((n, n), dtype=float)     # matrix to fill column by column
+
+    # Read the time budget from the arguments, else from the shared module one;
+    # time is only checked when both values are available.
     _ts = t_start if t_start is not None else _time_budget[0]
     _tl = time_limit if time_limit is not None else _time_budget[1]
     _check_time = (_ts is not None and _tl is not None)
 
+    # Build one column at a time by perturbing only coordinate j.
     for j in range(n):
+        # Every 100 columns, stop the computation if the allotted time is up.
         if _check_time and j % 100 == 0 and time.perf_counter() - _ts > _tl:
             raise TimeLimitExceeded()
-        xp = x.copy(); xp[j] += h[j]
-        xm = x.copy(); xm[j] -= h[j]
-        H[:, j] = (grad_f(xp) - grad_f(xm)) / (2.0 * h[j])
+        xp = x.copy(); xp[j] += h[j]      # point moved forward along coordinate j
+        xm = x.copy(); xm[j] -= h[j]      # point moved backward along coordinate j
+        H[:, j] = (grad_f(xp) - grad_f(xm)) / (2.0 * h[j])   # centered difference
 
     if symmetrize:
-        H = 0.5 * (H + H.T)
+        H = 0.5 * (H + H.T)               # force exact symmetry
     return H
 
 
 def hess_fd_diag(grad_f, x, k=8, *, scaled=False):
-    """CPR single-color: diagonal Hessian via ONE global perturbation.
+    """Diagonal Hessian via a single global perturbation (centered, O(h^2)).
 
-    Valid under the assumption (verified for Problem 16) that H is diagonal,
-    i.e. each gradient component g_j depends only on x_j.  In that case:
+    Valid when H is diagonal (each gradient component g_j depends only on x_j).
+    Then the whole diagonal follows from ONE pair of gradient calls, regardless
+    of n:
 
-        diag(H)[j] = (g_j(x + h) - g_j(x - h)) / (2 h_j)
+        diag(H)[j] ~ (g_j(x + h) - g_j(x - h)) / (2 h_j).
 
-    Cost: 2 gradient evaluations, INDEPENDENT of n.
+    Parameters
+    ----------
+    grad_f : callable
+        Gradient map x -> grad f(x), returning an array of length n.
+    x : array_like, shape (n,)
+        Point at which the diagonal is approximated.
+    k : int, default 8
+        Step-size exponent: the base step is h = 10**(-k).
+    scaled : bool, default False
+        If True, h_i = 10**(-k) * |x_i| (falls back to 10**(-k) when x_i == 0).
 
     Returns
     -------
-    diag : ndarray (n,) — the diagonal of H (compact representation)
+    diag : ndarray, shape (n,)
+        The diagonal of H (compact representation of the full matrix).
     """
     x = np.asarray(x, dtype=float)
-    h = _step(x, k, scaled)
-    gp = grad_f(x + h)
-    gm = grad_f(x - h)
-    return (gp - gm) / (2.0 * h)
+    h = _step(x, k, scaled)               # per-component step vector
+    gp = grad_f(x + h)                    # gradient with all coordinates moved forward
+    gm = grad_f(x - h)                    # gradient with all coordinates moved backward
+    return (gp - gm) / (2.0 * h)          # component-wise centered difference
 
 
 def hv_fd(grad_f, x, v, k=8, *, scaled=False):
-    """Matrix-free Hessian-vector product (centered, O(h^2)).
+    """Matrix-free Hessian-vector product H(x) v (centered, O(h^2)).
 
-        H(x) v  ~  (grad f(x + h v) - grad f(x - h v)) / (2 h)
+    Approximates the product without ever assembling H, using two gradient
+    calls along the direction v:
 
-    No matrix is ever assembled.  Two gradient calls per Hv application.
+        H(x) v ~ (grad f(x + h v) - grad f(x - h v)) / (2 h).
+
     Used by the inner CG solver of Truncated Newton.
-
-    Step h (scalar, not per-component, because the perturbation is along
-    a generic direction v):
-        fixed   -> h = 10^{-k}
-        scaled  -> h = 10^{-k} * max(||x||_inf, 1)   (global rescaling)
 
     Parameters
     ----------
-    grad_f  : callable, x -> grad f(x)
-    x       : ndarray (n,)
-    v       : ndarray (n,), direction
-    k       : step-size exponent
-    scaled  : if True, rescale h by max(||x||_inf, 1)
+    grad_f : callable
+        Gradient map x -> grad f(x).
+    x : array_like, shape (n,)
+        Point at which the product is evaluated.
+    v : array_like, shape (n,)
+        Direction the Hessian is multiplied by.
+    k : int, default 8
+        Step-size exponent: the base step is h = 10**(-k).
+    scaled : bool, default False
+        If True, rescale the (scalar) step by max(||x||_inf, 1).
 
     Returns
     -------
-    Hv : ndarray (n,)
+    Hv : ndarray, shape (n,)
+        Approximated product H(x) v.
     """
     x = np.asarray(x, dtype=float)
     v = np.asarray(v, dtype=float)
-    h_base = 10.0 ** (-k)
+    h_base = 10.0 ** (-k)                 # base step h = 10^(-k)
+    # Step is a scalar here because we perturb along a generic direction v.
     h = h_base * max(np.max(np.abs(x)), 1.0) if scaled else h_base
-    return (grad_f(x + h * v) - grad_f(x - h * v)) / (2.0 * h)
+    return (grad_f(x + h * v) - grad_f(x - h * v)) / (2.0 * h)   # centered difference
 
 
 def hv_fd_normalized_v(grad_f, x, v, k=8, *, scaled=False):
-    """Matrix-free Hessian-vector product with a NORMALIZED direction.
+    """Like hv_fd, but normalize the direction to unit length first.
 
-    Identical to ``hv_fd`` except that the direction is normalized to unit
-    length before the finite-difference step and the result is rescaled
-    afterwards.  Since the Hessian is linear in the direction,
-
-        H(x) v = ||v|| * H(x) (v / ||v||),
-
-    so we evaluate the FD product along v_hat = v / ||v|| and multiply back by
-    ||v||.  The numerical result is the same operator as ``hv_fd`` in exact
-    arithmetic.
-
-    Why: the perturbed points are x +/- h*v.  When ||v|| is very large (e.g. the
-    first iterations of Problem 28, where ||grad(x_bar)|| = O(n^7)) the step
-    h*v overshoots and the gradient is evaluated far from x; when ||v|| is tiny
-    the perturbation underflows.  Normalizing keeps the actual perturbation
-    h*v_hat on a unit scale, mitigating cancellation/overflow in the gradient
-    evaluation; the linear rescale by ||v|| then restores the correct magnitude.
+    Since the Hessian is linear in the direction, H(x) v = ||v|| * H(x) (v/||v||):
+    we evaluate the product along v/||v|| and multiply the result back by ||v||.
+    Normalizing keeps the actual perturbation on a unit scale, avoiding overshoot
+    or underflow when ||v|| is huge or tiny (e.g. Problem 28, where
+    ||grad(x_bar)|| = O(n^7)). Returns the zero vector when ||v|| == 0.
 
     Parameters
     ----------
-    grad_f  : callable, x -> grad f(x)
-    x       : ndarray (n,)
-    v       : ndarray (n,), direction
-    k       : step-size exponent
-    scaled  : if True, rescale h by max(||x||_inf, 1) (forwarded to hv_fd)
+    grad_f : callable
+        Gradient map x -> grad f(x).
+    x : array_like, shape (n,)
+        Point at which the product is evaluated.
+    v : array_like, shape (n,)
+        Direction the Hessian is multiplied by.
+    k : int, default 8
+        Step-size exponent: the base step is h = 10**(-k).
+    scaled : bool, default False
+        Forwarded to hv_fd.
 
     Returns
     -------
-    Hv : ndarray (n,).  Zero vector if ||v|| == 0.
+    Hv : ndarray, shape (n,)
+        Approximated product H(x) v.
     """
     v = np.asarray(v, dtype=float)
-    nv = float(np.linalg.norm(v))
+    nv = float(np.linalg.norm(v))         # length of the direction
     if nv == 0.0:
-        # H(x) * 0 = 0; also avoids a 0/0 normalization.
-        return np.zeros_like(np.asarray(x, dtype=float))
-    v_hat = v / nv
-    # Delegate to hv_fd so the step rule (h = 10^-k, or 10^-k*max(||x||_inf,1))
-    # remains the single source of truth, then undo the normalization.
+        return np.zeros_like(np.asarray(x, dtype=float))   # H(x) * 0 = 0
+    v_hat = v / nv                        # unit-length direction
+    # Delegate to hv_fd (single source of truth for the step rule), then undo
+    # the normalization with the linear rescale by ||v||.
     return nv * hv_fd(grad_f, x, v_hat, k=k, scaled=scaled)

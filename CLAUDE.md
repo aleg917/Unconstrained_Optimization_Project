@@ -11,7 +11,6 @@ src/
                    finite_diff.py              — forward FD gradient (grad_fd)
   hessians/        problem16.py, problem28.py  — exact hess_f(x)
                    finite_diff.py              — FD Hessian (hess_fd) + Hessian-vector (hv_fd)
-                   sparsity.py                 — sparsity utilities
   methods/         modified_newton.py          — Modified Newton (Cholesky + tau modification)
                    truncated_newton.py         — Truncated Newton (Linesearch Newton-CG)
                    armijo_backtracking.py      — shared Armijo line search

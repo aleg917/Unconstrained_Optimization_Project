@@ -10,13 +10,8 @@ from ..time_budget import TimeLimitExceeded, _time_budget
 
 
 def grad_fd(f, x, k=8, scaled=False, t_start=None, time_limit=None):
-    """Approximate the gradient of f at x by centered finite differences.
-
-    The form is fixed to the centered (symmetric) scheme, accurate to O(h^2):
-
-        dF/dx_i ~ [f(x + h e_i) - f(x - h e_i)] / (2 h)
-
-    where e_i is the i-th unit vector, i.e. only coordinate i is perturbed.
+    """
+    Approximate the gradient of f at x by centered finite differences.
 
     Parameters
     ----------
