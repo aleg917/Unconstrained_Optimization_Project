@@ -1,4 +1,4 @@
-"""Problem 16: Banded Trigonometric Problem"""
+"""Problem 16: Banded trigonometric problem"""
 import numpy as np
 
 

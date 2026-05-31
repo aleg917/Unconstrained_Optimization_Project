@@ -1,4 +1,4 @@
-"""Problem 28: Variably Dimensioned Function"""
+"""Problem 28: Variably dimensioned function"""
 import numpy as np
 
 
