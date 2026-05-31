@@ -14,6 +14,6 @@ def hess_f16(x):
     x = np.asarray(x, dtype=float)
     n = len(x)
     j = np.arange(1, n + 1)
-    diag_vals = j * np.cos(x) - 2.0 * np.sin(x)                   # second derivative, j = 1..n-1
-    diag_vals[-1] = n * np.cos(x[-1]) + (n - 1) * np.sin(x[-1])   # last component differs
-    return sp.diags(diag_vals, 0, format='csc')                  # store only the diagonal -> O(n) memory
+    diag_vals = j * np.cos(x) - 2.0 * np.sin(x)
+    diag_vals[-1] = n * np.cos(x[-1]) + (n - 1) * np.sin(x[-1])
+    return sp.diags(diag_vals, 0, format='csc') # store only the diagonal -> O(n) memory

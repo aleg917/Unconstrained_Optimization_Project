@@ -23,7 +23,8 @@ def _step(x, k, scaled):
 
 def hess_fd(grad_f, x, k=8, *, scaled=False, symmetrize=True,
             t_start=None, time_limit=None):
-    """Approximate the Hessian H(x) column by column (centered, O(h^2)).
+    """
+    Approximate the Hessian H(x) column by column (centered).
 
     Each column j is the centered difference of the gradient when only
     coordinate j is perturbed:
@@ -85,7 +86,8 @@ def hess_fd(grad_f, x, k=8, *, scaled=False, symmetrize=True,
 
 
 def hess_fd_diag(grad_f, x, k=8, *, scaled=False):
-    """Diagonal Hessian via a single global perturbation (centered, O(h^2)).
+    """
+    Diagonal Hessian via a single global perturbation (centered).
 
     Valid when H is diagonal (each gradient component g_j depends only on x_j).
     Then the whole diagonal follows from ONE pair of gradient calls, regardless
@@ -117,7 +119,8 @@ def hess_fd_diag(grad_f, x, k=8, *, scaled=False):
 
 
 def hv_fd(grad_f, x, v, k=8, *, scaled=False):
-    """Matrix-free Hessian-vector product H(x) v (centered, O(h^2)).
+    """
+    Matrix-free Hessian-vector product H(x) v (centered).
 
     Approximates the product without ever assembling H, using two gradient
     calls along the direction v:
