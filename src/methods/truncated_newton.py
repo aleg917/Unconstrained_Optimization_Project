@@ -40,9 +40,10 @@ import time
 import numpy as np
 import scipy.sparse as sp
 
-from ..gradients.finite_diff import (TimeLimitExceeded, grad_fd,
-                                     set_time_budget, clear_time_budget)
+from ..gradients.finite_diff import grad_fd
 from ..hessians.finite_diff import hv_fd
+from ..time_budget import (TimeLimitExceeded, set_time_budget,
+                           clear_time_budget)
 from ..stopping_criteria.base import StoppingCriterion
 from .armijo_backtracking import armijo_backtracking
 
@@ -141,7 +142,7 @@ def _cg_truncated(H, b, eta_k, cg_max_iter, t_start=None, time_limit=None):
 
 def truncated_newton(f, x0, stopping,
                      grad_f=None, hess_f=None,
-                     k=8, scaled=False,
+                     k=8, scaled=False, hv_func=hv_fd,
                      alpha0=1.0, c1=1e-4, rho=0.5,
                      forcing="superlinear", eta_fixed=0.5,
                      cg_max_iter=None,
@@ -178,6 +179,10 @@ def truncated_newton(f, x0, stopping,
     k                 : FD step-size exponent (h = 10^{-k}), used when
                         grad_f or hess_f is None
     scaled            : if True, FD step is rescaled by |x_i|
+    hv_func           : callable (grad_f, x, v, k=..., scaled=...) -> Hv.
+                        Used ONLY on the matrix-free path (hess_f=None); inert
+                        in exact mode (a real Hessian is supplied). Defaults to
+                        hv_fd; pass hv_fd_normalized_v to normalize the direction.
     alpha0, c1, rho   : Armijo line-search parameters
     forcing           : eta_k strategy: 'linear'|'superlinear'|'quadratic'
                         or a float in (0,1)
@@ -256,8 +261,8 @@ def truncated_newton(f, x0, stopping,
                     apply_H = H_result
             else:
                 x_k = x
-                _k, _scaled = k, scaled
-                apply_H = lambda d, _x=x_k: hv_fd(grad_f, _x, d, k=_k, scaled=_scaled)
+                _k, _scaled, _hv = k, scaled, hv_func
+                apply_H = lambda d, _x=x_k: _hv(grad_f, _x, d, k=_k, scaled=_scaled)
 
             b = -g
             eta_k = _compute_eta(forcing, eta_fixed, g_norm)

@@ -29,9 +29,10 @@ import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
 
-from ..gradients.finite_diff import (TimeLimitExceeded, grad_fd,
-                                     set_time_budget, clear_time_budget)
+from ..gradients.finite_diff import grad_fd
 from ..hessians.finite_diff import hess_fd
+from ..time_budget import (TimeLimitExceeded, set_time_budget,
+                           clear_time_budget)
 from ..stopping_criteria.base import StoppingCriterion
 from .armijo_backtracking import armijo_backtracking
 

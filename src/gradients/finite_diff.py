@@ -1,77 +1,82 @@
-"""Gradient approximation via centered finite differences (generic).
-
-Two step-size variants:
-    - "fixed":  h_i = 10^{-k}
-    - "scaled": h_i = 10^{-k} * |x_i|   (falls back to fixed when x_i = 0)
-
-Typically k in {4, 8, 12} (as required by the assignment).
-
-Uses centered differences for O(h^2) accuracy at the cost of 2n function
-evaluations per gradient (vs n+1 for forward differences).
+"""
+Centered finite-difference gradients.
+Step size h_i = 10^{-k}, or 10^{-k}*|x_i| when scaled=True (k in [4, 8, 12]).
 """
 import time
 
 import numpy as np
 
-
-class TimeLimitExceeded(Exception):
-    """Raised when a wall-clock time limit is exceeded inside an FD loop."""
-    pass
-
-
-# Module-level time budget.  Optimization methods call set_time_budget()
-# on entry so that ALL FD routines (even those created as lambdas outside
-# the method) respect the wall-clock limit.  Uses a mutable list so that
-# imports in other modules see mutations.
-_time_budget = [None, None]   # [t_start, time_limit]
-
-
-def set_time_budget(t_start, time_limit):
-    _time_budget[0] = t_start
-    _time_budget[1] = time_limit
-
-
-def clear_time_budget():
-    _time_budget[0] = None
-    _time_budget[1] = None
+from ..time_budget import TimeLimitExceeded, _time_budget
 
 
 def grad_fd(f, x, k=8, scaled=False, t_start=None, time_limit=None):
-    """Centered finite-difference gradient approximation, O(h^2).
+    """Approximate the gradient of f at x by centered finite differences.
 
-        df/dx_i ~ [f(x + h_i e_i) - f(x - h_i e_i)] / (2 h_i)
+    The form is fixed to the centered (symmetric) scheme, accurate to O(h^2):
+
+        dF/dx_i ~ [f(x + h e_i) - f(x - h e_i)] / (2 h)
+
+    where e_i is the i-th unit vector, i.e. only coordinate i is perturbed.
 
     Parameters
     ----------
-    f          : callable, F(x) -> scalar
-    x          : ndarray (n,)
-    k          : step-size exponent (h = 10^{-k})
-    scaled     : if True, h_i = 10^{-k} * |x_i| (falls back to 10^{-k} when x_i = 0)
-    t_start    : float or None, reference time (time.perf_counter())
-    time_limit : float or None, wall-clock budget in seconds
+    f : callable
+        Objective F(x) -> float, taking an array of length n.
+    x : array_like, shape (n,)
+        Point at which the gradient is approximated.
+    k : int, default 8
+        Step-size exponent: the base step is h = 10**(-k).
+    scaled : bool, default False
+        If True, scale the step per component as h_i = 10**(-k) * |x_i|
+        (falls back to 10**(-k) when x_i == 0).
+    t_start : float or None, default None
+        Start time (from time.perf_counter()) of the wall-clock budget.
+        If None, the shared module-level budget is used instead.
+    time_limit : float or None, default None
+        Wall-clock budget in seconds. If None, the module-level budget is
+        used. Time is checked only when both t_start and time_limit are set.
 
     Returns
     -------
-    g_fd   : ndarray (n,), approximation of grad F(x)
+    g : ndarray, shape (n,)
+        Approximated gradient of F at x.
 
     Raises
     ------
-    TimeLimitExceeded if the wall-clock budget is exceeded.
+    TimeLimitExceeded
+        If the wall-clock budget is exceeded while looping over components.
     """
     x = np.asarray(x, dtype=float)
     n = len(x)
-    g = np.zeros(n)
+    g = np.zeros(n) # gradient vector to fill in (one entry per variable)
+
+    # Base step h = 10^(-k)
     h_base = 10.0 ** (-k)
+
+    # Read the start time and time limit; if not passed as arguments, fall back
+    # to the ones shared at module level. Time is only checked when both are
+    # available.
     _ts = t_start if t_start is not None else _time_budget[0]
     _tl = time_limit if time_limit is not None else _time_budget[1]
     _check_time = (_ts is not None and _tl is not None)
+
+    # Compute one partial derivative at a time, along each variable i.
     for i in range(n):
+        # Every 200 variables, check the clock: if time is up, stop the computation by raising an exception.
         if _check_time and i % 200 == 0 and time.perf_counter() - _ts > _tl:
             raise TimeLimitExceeded()
+
+        # Step for variable i: if scaled=True it is adapted to the magnitude
+        # of x[i]; if x[i] is 0 we fall back to the base step.
         h = h_base * abs(x[i]) if (scaled and x[i] != 0.0) else h_base
+
+        # Two copies of the point: in one we move coordinate i forward by +h, in the other backward by -h.
         x_fwd = x.copy()
         x_bwd = x.copy()
         x_fwd[i] += h
         x_bwd[i] -= h
+
+        # Centered difference: change in f between the two points, divided by 2h.
         g[i] = (f(x_fwd) - f(x_bwd)) / (2.0 * h)
+
     return g

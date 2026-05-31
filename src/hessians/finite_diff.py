@@ -28,7 +28,7 @@ import time
 
 import numpy as np
 
-from ..gradients.finite_diff import TimeLimitExceeded, _time_budget
+from ..time_budget import TimeLimitExceeded, _time_budget
 
 
 def _step(x, k, scaled):
@@ -141,3 +141,46 @@ def hv_fd(grad_f, x, v, k=8, *, scaled=False):
     h_base = 10.0 ** (-k)
     h = h_base * max(np.max(np.abs(x)), 1.0) if scaled else h_base
     return (grad_f(x + h * v) - grad_f(x - h * v)) / (2.0 * h)
+
+
+def hv_fd_normalized_v(grad_f, x, v, k=8, *, scaled=False):
+    """Matrix-free Hessian-vector product with a NORMALIZED direction.
+
+    Identical to ``hv_fd`` except that the direction is normalized to unit
+    length before the finite-difference step and the result is rescaled
+    afterwards.  Since the Hessian is linear in the direction,
+
+        H(x) v = ||v|| * H(x) (v / ||v||),
+
+    so we evaluate the FD product along v_hat = v / ||v|| and multiply back by
+    ||v||.  The numerical result is the same operator as ``hv_fd`` in exact
+    arithmetic.
+
+    Why: the perturbed points are x +/- h*v.  When ||v|| is very large (e.g. the
+    first iterations of Problem 28, where ||grad(x_bar)|| = O(n^7)) the step
+    h*v overshoots and the gradient is evaluated far from x; when ||v|| is tiny
+    the perturbation underflows.  Normalizing keeps the actual perturbation
+    h*v_hat on a unit scale, mitigating cancellation/overflow in the gradient
+    evaluation; the linear rescale by ||v|| then restores the correct magnitude.
+
+    Parameters
+    ----------
+    grad_f  : callable, x -> grad f(x)
+    x       : ndarray (n,)
+    v       : ndarray (n,), direction
+    k       : step-size exponent
+    scaled  : if True, rescale h by max(||x||_inf, 1) (forwarded to hv_fd)
+
+    Returns
+    -------
+    Hv : ndarray (n,).  Zero vector if ||v|| == 0.
+    """
+    v = np.asarray(v, dtype=float)
+    nv = float(np.linalg.norm(v))
+    if nv == 0.0:
+        # H(x) * 0 = 0; also avoids a 0/0 normalization.
+        return np.zeros_like(np.asarray(x, dtype=float))
+    v_hat = v / nv
+    # Delegate to hv_fd so the step rule (h = 10^-k, or 10^-k*max(||x||_inf,1))
+    # remains the single source of truth, then undo the normalization.
+    return nv * hv_fd(grad_f, x, v_hat, k=k, scaled=scaled)
