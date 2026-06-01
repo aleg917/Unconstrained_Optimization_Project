@@ -114,9 +114,17 @@ def preconditioned_truncated_newton(f, x0, stopping,
         raise ValueError("preconditioned_truncated_newton requires x0 and stopping")
 
     t_start = time.perf_counter()
+    # Pubblica (t_start, time_limit) in uno slot a livello di modulo cosi' che le
+    # routine alle differenze finite (grad_fd / hv_fd, prive di argomenti di tempo)
+    # possano leggerlo e sollevare TimeLimitExceeded a meta' valutazione.  Viene
+    # azzerato nel blocco finally piu' sotto.
     set_time_budget(t_start, time_limit)
 
     # --- resolve FD callables ------------------------------------------------
+    # Se non e' fornito un gradiente esatto lo si sostituisce con un gradiente FD
+    # centrato, congelando (k, scaled) nella closure.  hess_f NON viene risolta
+    # qui: quando e' None il ciclo sotto usa il percorso matrix-free (hv_func) e
+    # il precondizionamento resta disattivato.
     if grad_f is None:
         _k, _scaled = k, scaled
         grad_f = lambda x: grad_fd(f, x, k=_k, scaled=_scaled)
@@ -153,6 +161,10 @@ def preconditioned_truncated_newton(f, x0, stopping,
             stop_reason = "time_limit"
             raise TimeLimitExceeded()
 
+        # Passa al criterio lo stato iniziale una sola volta, prima del ciclo,
+        # cosi' i test relativi possono memorizzare i valori di riferimento (es.
+        # la norma iniziale del gradiente ||g_0|| usata per scalare una
+        # tolleranza relativa).
         stopping.initialize(x, fx, g)
 
         if return_history:
@@ -248,31 +260,34 @@ def preconditioned_truncated_newton(f, x0, stopping,
                                                  t_start=t_start, time_limit=time_limit)
 
             cg_iters_total += cg_j
-            if cg_term.startswith("negcurv"):
+            if cg_term.startswith("negcurv"):   # il CG ha incontrato curvatura non positiva
                 neg_curv_count += 1
-            if cg_term == "time_limit":
+            if cg_term == "time_limit":          # il CG stesso ha esaurito il budget: stop
                 stop_reason = "time_limit"
                 break
 
-            # 2.3: Armijo backtracking + update
+            # 2.3: l'Armijo backtracking sceglie il passo alpha lungo p, poi aggiorna
             alpha, n_bt = armijo_backtracking(f, x, fx, g, p,
                                               alpha0=alpha0, c1=c1, rho=rho,
                                               max_iter=max_iter_backtrack,
                                               t_start=t_start, time_limit=time_limit)
             n_backtrack_total += n_bt
+            # Controllo del tempo PRIMA di applicare il passo: se il budget e'
+            # finito durante la line search, armijo_backtracking puo' aver
+            # restituito un alpha non verificato, quindi ci fermiamo mantenendo
+            # l'iterato precedente (buono) invece di compiere un passo che
+            # potrebbe non diminuire f.  Il tempo speso dal refresh di f/gradiente
+            # qui sotto e' intercettato dal controllo in cima all'iterazione
+            # successiva, percio' non serve un secondo controllo qui.
             if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
                 stop_reason = "time_limit"
                 break
 
-            x_prev, fx_prev = x.copy(), fx
-            x = x + alpha * p
-            fx = f(x)
+            x_prev, fx_prev = x.copy(), fx     # ricorda l'iterato precedente per il test di arresto
+            x = x + alpha * p                  # x^(k+1) = x^(k) + alpha * p
+            fx = f(x)                          # ricalcola f, gradiente e norma del gradiente in x
             g = grad_f(x)
             g_norm = float(np.linalg.norm(g))
-
-            if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
-                stop_reason = "time_limit"
-                break
 
             if return_history:
                 history.append({'x': x.copy(), 'f': fx, 'grad_norm': g_norm,
@@ -281,16 +296,26 @@ def preconditioned_truncated_newton(f, x0, stopping,
                                 'cg_iters': cg_j, 'nu_k': float(eta_k),
                                 'cg_termination': cg_term})
 
-            # 2.4: check stopping criterion after update
+            # 2.4: verifica il criterio di convergenza sul nuovo iterato.  Restituisce
+            #      True quando il suo test e' soddisfatto (es. ||g|| sotto tolleranza,
+            #      o piccola variazione di x o di f tra iterazioni).  Un True qui e'
+            #      l'UNICA uscita di vera convergenza: success=True e stop_reason
+            #      registra quale criterio e' scattato (il suo .name), a differenza
+            #      delle uscite "time_limit"/"max_iter" che lasciano success=False.
             if stopping.should_stop(k_iter + 1, x, fx, g, x_prev, fx_prev):
                 success = True
                 stop_reason = stopping.name
                 break
 
+    # Due modi in cui il budget puo' terminare la run: i controlli inline
+    # `if ... break` qui sopra (che impostano stop_reason e escono dal ciclo
+    # normalmente) e TimeLimitExceeded sollevata in profondita' dentro una
+    # valutazione FD del gradiente / prodotto Hessiana-vettore, che risale fin
+    # qui.  In entrambi i casi success=False e in x resta l'ultimo iterato completo.
     except TimeLimitExceeded:
         stop_reason = "time_limit"
     finally:
-        clear_time_budget()
+        clear_time_budget()   # rilascia sempre il budget condiviso a livello di modulo
 
     result = {
         'x_star': x,

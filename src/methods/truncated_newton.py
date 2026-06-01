@@ -1,26 +1,6 @@
 """Truncated Newton (Linesearch Newton-CG) + Armijo backtracking.
 
-Implementation follows the NO4LSP course slides (Politecnico di Torino,
-A.Y. 2025/2026), chapter "Truncated Newton method / Linesearch Newton-CG".
-Mathematically equivalent to Dembo-Steihafel inexact Newton solved via
-Conjugate Gradient (cf. Nocedal-Wright ch. 7, theorems 6.1-6.2 in [SW]).
-
-Algorithm (from the slides):
-    Given x^(0). For k = 0, 1, 2, ...
-        2.1  z^(0) = 0,  d^(0) = -grad f(x^(k)),  r^(0) = -grad f(x^(k))
-        2.2  For j = 0, 1, 2, ...          (inner CG loop)
-            2.2.1  If d_j^T B_k d_j > 0:
-                       continue CG (update z, r, beta, d).
-                   Else (non-positive curvature):
-                       if j == 0 -> z = -grad f(x^(k))   (steepest descent)
-                       else      -> z = z_j               (last valid iterate)
-                       STOP inner.
-            2.2.2  If ||B_k z - b|| <= eta_k ||b||  STOP (inexact Newton).
-        2.3  p_TN^(k) := z;  alpha^(k) via Armijo + backtracking;
-             x^(k+1) = x^(k) + alpha^(k) p_TN^(k).
-        2.4  Stop if the stopping criterion is satisfied.
-
-Forcing sequence eta_k (Thm 6.2 in [SW]):
+Forcing sequence eta_k:
     'linear'      -> eta_k = eta_fixed (in (0,1))         => linear rate
     'superlinear' -> eta_k = min(0.5, sqrt(||g_k||))      => superlinear rate
     'quadratic'   -> eta_k = min(0.5, ||g_k||)            => quadratic rate
@@ -50,8 +30,6 @@ from .armijo_backtracking import armijo_backtracking
 
 def _compute_eta(forcing, eta_fixed, g_norm):
     """Compute eta_k (relative tolerance for the inner CG solver).
-
-    Cf. theorem 6.2 in [SW] / last slide of the professor:
         i)   eta_k = constant in (0,1)         -> linear convergence
         ii)  eta_k -> 0                        -> superlinear convergence
         iii) eta_k = O(||grad f(x_k)||)        -> quadratic convergence
@@ -82,7 +60,7 @@ def _cg_truncated(H, b, eta_k, cg_max_iter, t_start=None, time_limit=None):
         case iv)  reached the inner iteration cap              -> "maxiter"
         case v)   wall-clock time limit exceeded               -> "time_limit"
 
-    In all cases the returned direction is a descent direction (see slides).
+    In all cases the returned direction is a descent direction.
 
     Parameters
     ----------
@@ -101,43 +79,54 @@ def _cg_truncated(H, b, eta_k, cg_max_iter, t_start=None, time_limit=None):
     j            : int,           number of CG iterations performed
     termination  : str,           one of "tol"|"negcurv_j0"|"negcurv_jpos"|"maxiter"|"time_limit"
     """
+    # H may be a matrix (use its matmul) or a callable d -> H d (matrix-free).
     apply_H = H if callable(H) else H.__matmul__
     n = b.size
+    # Standard CG started from z = 0, so the initial residual and search
+    # direction both equal b (= -grad f): r = b - H*0 = b, d = r.
     z = np.zeros(n)
     r = b.copy()
     d = b.copy()
     norm_b = float(np.linalg.norm(b))
     rTr = float(r @ r)
 
-    if cg_max_iter <= 0 or norm_b == 0.0:
+    if cg_max_iter <= 0 or norm_b == 0.0:   # nothing to solve (already at a stationary point)
         return z, 0, "tol"
 
     for j in range(cg_max_iter):
+        # case v) time budget exhausted: return a descent direction either way --
+        # the steepest-descent step b = -g if we have no iterate yet, else the
+        # partial CG iterate z_j accumulated so far.
         if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
             if j == 0:
                 return b.copy(), 0, "time_limit"
             return z, j, "time_limit"
 
         Hd = apply_H(d)
-        dHd = float(d @ Hd)
+        dHd = float(d @ Hd)            # curvature of H along the search direction d
+        # cases ii)/iii) non-positive curvature: CG cannot continue safely.
+        # Fall back to steepest descent (-g) on the first step, else keep the
+        # last valid iterate; both are guaranteed descent directions.
         if dHd <= 0.0:
             if j == 0:
                 return b.copy(), 0, "negcurv_j0"
             return z, j, "negcurv_jpos"
 
+        # standard CG recurrence: step along d, then update the residual
         alpha = rTr / dHd
         z = z + alpha * d
         r_new = r - alpha * Hd
 
+        # case i) inexact-Newton stop: residual shrunk below the forcing tol eta_k
         if float(np.linalg.norm(r_new)) <= eta_k * norm_b:
             return z, j + 1, "tol"
 
         rTr_new = float(r_new @ r_new)
-        beta = rTr_new / rTr
-        d = r_new + beta * d
+        beta = rTr_new / rTr          # Fletcher-Reeves coefficient
+        d = r_new + beta * d          # next conjugate direction
         r, rTr = r_new, rTr_new
 
-    return z, cg_max_iter, "maxiter"
+    return z, cg_max_iter, "maxiter"   # case iv) hit the inner iteration cap
 
 
 def truncated_newton(f, x0, stopping,
@@ -148,11 +137,10 @@ def truncated_newton(f, x0, stopping,
                      cg_max_iter=None,
                      max_iter=1000, time_limit=None, max_iter_backtrack=50,
                      return_history=False):
-    """Truncated Newton / Linesearch Newton-CG (NO4LSP slides) + Armijo.
+    """Truncated Newton / Linesearch Newton-CG + Armijo.
 
-    The loop ordering matches the slides: steps (2.1-2.3) then check (2.4).
-    The stopping criterion is an instance of StoppingCriterion (plug-in
-    pattern).
+    The loop ordering matches the course implementation: steps (2.1-2.3) then check (2.4).
+    The stopping criterion is an instance of StoppingCriterion.
 
     Three usage modes:
         1) No FD:      pass grad_f and hess_f       (both exact)
@@ -204,9 +192,17 @@ def truncated_newton(f, x0, stopping,
         raise ValueError("truncated_newton requires x0 and stopping")
 
     t_start = time.perf_counter()
+    # Publish (t_start, time_limit) to a module-level slot so the finite-
+    # difference routines (grad_fd / hv_fd, which receive no timing arguments)
+    # can read it and raise TimeLimitExceeded mid-evaluation.  Cleared in the
+    # finally block below.
     set_time_budget(t_start, time_limit)
 
     # --- resolve FD callables ------------------------------------------------
+    # If no exact gradient was supplied, replace it with a centered FD gradient,
+    # freezing (k, scaled) into the closure.  hess_f is NOT resolved here: when
+    # it is None the loop below uses the matrix-free Hessian-vector path (hv_func)
+    # instead of ever assembling a Hessian.
     if grad_f is None:
         _k, _scaled = k, scaled
         grad_f = lambda x: grad_fd(f, x, k=_k, scaled=_scaled)
@@ -235,6 +231,9 @@ def truncated_newton(f, x0, stopping,
             stop_reason = "time_limit"
             raise TimeLimitExceeded()
 
+        # Hand the criterion the starting state once, before the loop, so that
+        # relative tests can store their reference values (e.g. the initial
+        # gradient norm ||g_0|| used to scale a relative tolerance).
         stopping.initialize(x, fx, g)
 
         if return_history:
@@ -248,52 +247,65 @@ def truncated_newton(f, x0, stopping,
                 stop_reason = "time_limit"
                 break
 
-            # 2.1-2.2: build CG operator and solve  B_k z = -g
+            # 2.1: build the operator apply_H : d -> H d that the inner CG needs.
+            # CG only ever uses the Hessian through this product, so we never
+            # need the full matrix.  Four cases by what hess_f returns:
             if hess_f is not None:
                 H_result = hess_f(x)
                 if isinstance(H_result, np.ndarray) and H_result.ndim == 1:
+                    # diagonal Hessian given as a 1D vector (e.g. Problem 16):
+                    # the product is just element-wise multiplication
                     diag = H_result
                     apply_H = lambda d, _diag=diag: _diag * d
                 elif sp.issparse(H_result):
+                    # sparse (diagonal) Hessian: pull out the diagonal, same as above
                     diag = np.asarray(H_result.diagonal(), dtype=float)
                     apply_H = lambda d, _diag=diag: _diag * d
                 else:
+                    # full dense Hessian: CG calls its matmul (apply_H(d) = H @ d)
                     apply_H = H_result
             else:
+                # matrix-free: no Hessian at all, approximate H*d by finite
+                # differences of the gradient at the frozen point x_k (hv_func).
                 x_k = x
                 _k, _scaled, _hv = k, scaled, hv_func
                 apply_H = lambda d, _x=x_k: _hv(grad_f, _x, d, k=_k, scaled=_scaled)
 
+            # 2.2: solve  H p = -g  inexactly with CG.  eta_k is the forcing term
+            # (how accurately to solve this iteration): smaller eta_k => tighter
+            # inner solve => faster outer convergence but more CG work.
             b = -g
             eta_k = _compute_eta(forcing, eta_fixed, g_norm)
             p, cg_j, cg_term = _cg_truncated(apply_H, b, eta_k, cg_max_iter,
                                               t_start=t_start, time_limit=time_limit)
             cg_iters_total += cg_j
-            if cg_term.startswith("negcurv"):
+            if cg_term.startswith("negcurv"):   # CG hit non-positive curvature
                 neg_curv_count += 1
-            if cg_term == "time_limit":
+            if cg_term == "time_limit":         # CG itself ran out of budget: stop now
                 stop_reason = "time_limit"
                 break
 
-            # 2.3: Armijo backtracking + update
+            # 2.3: Armijo backtracking picks a step length alpha along p, then update
             alpha, n_bt = armijo_backtracking(f, x, fx, g, p,
                                               alpha0=alpha0, c1=c1, rho=rho,
                                               max_iter=max_iter_backtrack,
                                               t_start=t_start, time_limit=time_limit)
             n_backtrack_total += n_bt
+            # Time check BEFORE committing the step: if the budget ran out during
+            # the line search, armijo_backtracking may have returned an untested
+            # alpha, so we stop and keep the previous (good) iterate rather than
+            # take a possibly non-decreasing step.  Time spent by the f/grad
+            # refresh just below is caught by the check at the top of the next
+            # iteration, so no second check is needed here.
             if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
                 stop_reason = "time_limit"
                 break
 
-            x_prev, fx_prev = x.copy(), fx
-            x = x + alpha * p
-            fx = f(x)
+            x_prev, fx_prev = x.copy(), fx     # remember previous iterate for the stopping test
+            x = x + alpha * p                  # x^(k+1) = x^(k) + alpha * p
+            fx = f(x)                          # refresh f, gradient and gradient norm at new x
             g = grad_f(x)
             g_norm = float(np.linalg.norm(g))
-
-            if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
-                stop_reason = "time_limit"
-                break
 
             if return_history:
                 history.append({'x': x.copy(), 'f': fx, 'grad_norm': g_norm,
@@ -302,16 +314,26 @@ def truncated_newton(f, x0, stopping,
                                 'cg_iters': cg_j, 'nu_k': float(eta_k),
                                 'cg_termination': cg_term})
 
-            # 2.4: check stopping criterion after update
+            # 2.4: check the convergence criterion on the new iterate.  It
+            #      returns True once its test passes (e.g. ||g|| below tolerance,
+            #      or a small change in x or f between iterations).  A True here
+            #      is the ONLY genuine-convergence exit: success=True, and
+            #      stop_reason records which criterion fired (its .name), as
+            #      opposed to the "time_limit"/"max_iter" exits which leave
+            #      success=False.
             if stopping.should_stop(k_iter + 1, x, fx, g, x_prev, fx_prev):
                 success = True
                 stop_reason = stopping.name
                 break
 
+    # Two ways the budget can end the run: the inline `if ... break` checks above
+    # (which set stop_reason and leave the loop normally), and TimeLimitExceeded
+    # raised deep inside an FD gradient / Hessian-vector evaluation, which unwinds
+    # to here.  Both leave success=False and the last completed iterate in x.
     except TimeLimitExceeded:
         stop_reason = "time_limit"
     finally:
-        clear_time_budget()
+        clear_time_budget()   # always release the shared module-level budget
 
     result = {
         'x_star': x,

@@ -41,12 +41,14 @@ def armijo_backtracking(f, x, fx, g, d, alpha0=1.0, c1=1e-4, rho=0.5,
     alpha     : accepted step size
     n_back    : number of reductions performed
     """
-    g_dot_d = float(g @ d)
-    alpha = alpha0
+    g_dot_d = float(g @ d)                # directional derivative <g, d> (slope along d)
+    alpha = alpha0                        # start from the full step (alpha0)
     for j in range(max_iter):
+        # Stop early if the wall-clock budget is exhausted; return the current step.
         if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
             return alpha, j
+        # Armijo test: accept alpha as soon as the sufficient-decrease condition holds.
         if f(x + alpha * d) <= fx + c1 * alpha * g_dot_d:
             return alpha, j
-        alpha *= rho
-    return alpha, max_iter
+        alpha *= rho                      # otherwise shrink the step by rho and retry
+    return alpha, max_iter                # budget of reductions used up: return last alpha
