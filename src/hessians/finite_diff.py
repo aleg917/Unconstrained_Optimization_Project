@@ -11,7 +11,30 @@ from ..time_budget import TimeLimitExceeded, _time_budget
 
 
 def _step(x, k, scaled):
-    """Per-component step h_i: 10**(-k), or 10**(-k)*|x_i| when scaled (x_i != 0)."""
+    """
+    Build the per-component finite-difference step vector h.
+
+    Returns one step h_i per coordinate, used by the coordinate stencils in
+    hess_fd and hess_fd_diag:
+
+        unscaled : h_i = 10**(-k)              (same step for every component)
+        scaled   : h_i = 10**(-k) * |x_i|      (step scaled by |x_i|; where
+                                                x_i == 0 it falls back to 10**(-k))
+
+    Parameters
+    ----------
+    x : array_like, shape (n,)
+        Point at which the step is computed (used only by the scaled rule).
+    k : int
+        Step-size exponent: the base step is h = 10**(-k).
+    scaled : bool
+        If True use h_i = 10**(-k) * |x_i|; otherwise h_i = 10**(-k).
+
+    Returns
+    -------
+    h : ndarray, shape (n,)
+        Per-component step vector.
+    """
     x = np.asarray(x, dtype=float)
     h_base = 10.0 ** (-k)                          # base step h = 10^(-k)
     if not scaled:
@@ -32,6 +55,14 @@ def hess_fd(grad_f, x, k=8, *, scaled=False, symmetrize=True,
         H[:, j] ~ (grad f(x + h e_j) - grad f(x - h e_j)) / (2 h).
 
     Cost: 2n gradient evaluations.
+
+    When to use
+    -----------
+    The general case: H is dense or its sparsity is unknown (e.g. Problem 28).
+    This is the FD Hessian wired into Modified Newton (call with hess_f=None),
+    which needs the full matrix to factorize it (Cholesky). Costs 2n gradient
+    evaluations and O(n^2) storage, so at large n prefer hess_fd_diag when H is
+    known to be diagonal, or the matrix-free hv_fd used by Truncated Newton.
 
     Parameters
     ----------
@@ -95,6 +126,14 @@ def hess_fd_diag(grad_f, x, k=8, *, scaled=False):
 
         diag(H)[j] ~ (g_j(x + h) - g_j(x - h)) / (2 h_j).
 
+    When to use
+    -----------
+    Only when the Hessian is known to be diagonal — each gradient component
+    g_j depends solely on x_j (e.g. Problem 16). One pair of gradient calls
+    then recovers the whole diagonal regardless of n, vs the 2n calls and
+    O(n^2) storage of hess_fd. Do NOT use it when off-diagonal terms exist:
+    the result is wrong.
+
     Parameters
     ----------
     grad_f : callable
@@ -127,7 +166,12 @@ def hv_fd(grad_f, x, v, k=8, *, scaled=False):
 
         H(x) v ~ (grad f(x + h v) - grad f(x - h v)) / (2 h).
 
-    Used by the inner CG solver of Truncated Newton.
+    When to use
+    -----------
+    When you need only the action of H on a vector, not the matrix itself —
+    the inner CG solver of Truncated Newton (its default hv_func). Two gradient
+    calls per product and no O(n^2) assembly, so it scales to large n. When the
+    direction v can have extreme magnitude, prefer hv_fd_normalized_v.
 
     Parameters
     ----------
@@ -163,6 +207,12 @@ def hv_fd_normalized_v(grad_f, x, v, k=8, *, scaled=False):
     Normalizing keeps the actual perturbation on a unit scale, avoiding overshoot
     or underflow when ||v|| is huge or tiny (e.g. Problem 28, where
     ||grad(x_bar)|| = O(n^7)). Returns the zero vector when ||v|| == 0.
+
+    When to use
+    -----------
+    Same role as hv_fd (Truncated Newton's hv_func), but when ||v|| can be huge
+    or tiny so that the raw step h*v would overshoot or underflow — e.g.
+    Problem 28. Pass it to Truncated Newton as hv_func in place of hv_fd.
 
     Parameters
     ----------
