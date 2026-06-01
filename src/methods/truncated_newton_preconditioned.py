@@ -1,39 +1,4 @@
-"""Preconditioned Truncated Newton (Linesearch Newton-CG con precondizionamento).
-
-Questo file e' una copia di ``truncated_newton.py`` a cui e' stato aggiunto un
-PRECONDIZIONAMENTO del sistema interno risolto dal CG.  Tutto il resto
-(forcing eta_k, Armijo, history, criterio di arresto, gestione del time limit,
-dizionario dei risultati) e' identico al Truncated Newton di base: per questo
-riusiamo direttamente ``_compute_eta`` e ``_cg_truncated`` importandoli da
-``truncated_newton`` (il solutore CG resta cosi' provatamente lo stesso).
-
-Idea del precondizionamento "split" (two-sided) con Cholesky (incompleto).
-Invece di risolvere
-
-    H d = -g
-
-con il CG (numero di condizionamento k(H), potenzialmente enorme: per il
-Problema 28 H = I + c j j^T e' molto mal condizionata), risolviamo il sistema
-TRASFORMATO
-
-    (L^-1 H L^-T) d~ = L^-1 (-g),      poi     d = L^-T d~,
-
-dove L e' il fattore (incompleto) di Cholesky di H, cioe' M = L L^T ~ H.
-L'operatore L^-1 H L^-T ha numero di condizionamento molto piu' piccolo (= 1
-quando L L^T = H esattamente), quindi il CG converge in pochissime iterazioni.
-
-Perche' possiamo riusare ``_cg_truncated`` SENZA modificarlo: la trasformazione
-e' una CONGRUENZA,
-
-    w^T (L^-1 H L^-T) w = (L^-T w)^T H (L^-T w),
-
-quindi preserva il SEGNO della curvatura.  La logica di curvatura negativa del
-CG (che decide se proseguire o fermarsi) resta percio' valida tale e quale.
-
-Quando il precondizionatore NON e' costruibile (percorso matrix-free hess_f=None:
-non esiste alcuna matrice da fattorizzare; oppure Hessiana non definita positiva)
-si emette un warning e si ricade sul CG NON precondizionato, esattamente come il
-Truncated Newton di base.
+"""Preconditioned Truncated Newton (Linesearch Newton-CG with preconditioning).
 """
 import time
 import warnings
@@ -61,21 +26,19 @@ def preconditioned_truncated_newton(f, x0, stopping,
                                     return_history=False):
     """Preconditioned Truncated Newton / Linesearch Newton-CG + Armijo.
 
-    Stessa firma e stessi modi d'uso di ``truncated_newton``.  L'unica
-    differenza e' il precondizionamento del solutore CG interno (vedi il
-    docstring del modulo).
+    Same signature and same usage as ``truncated_newton``.  The only difference
+    is the preconditioning of the inner CG solver (see the module docstring).
 
-    Costruzione del precondizionatore (solo se e' disponibile una Hessiana
-    ASSEMBLATA, cioe' hess_f e' fornita e restituisce una matrice):
-        - Hessiana diagonale/sparsa (Problema 16): IC esatto e banale,
-          L = diag(sqrt(diag(H))).  Richiede diag(H) > 0.
-        - Hessiana densa (Problema 28): Cholesky completo
-          ``scipy.linalg.cholesky(H, lower=True)`` (H28 e' SPD, quindi il
-          fattore e' esatto; scelto al posto di spilu perche' piu' semplice).
-    Fallback (warning + CG non precondizionato):
-        - hess_f is None  -> percorso matrix-free, nessuna matrice da
-          fattorizzare;
-        - fattorizzazione fallita (Hessiana non definita positiva).
+    Preconditioner construction (only if an ASSEMBLED Hessian is available, i.e.
+    hess_f is provided and returns a matrix):
+        - Diagonal/sparse Hessian (Problem 16): exact and trivial IC,
+          L = diag(sqrt(diag(H))).  Requires diag(H) > 0.
+        - Dense Hessian (Problem 28): full Cholesky
+          ``scipy.linalg.cholesky(H, lower=True)`` (H28 is SPD, so the factor
+          is exact; chosen instead of spilu because it is simpler).
+    Fallback (warning + unpreconditioned CG):
+        - hess_f is None  -> matrix-free path, no matrix to factorize;
+        - factorization failed (Hessian not positive definite).
 
     Parameters
     ----------
@@ -85,8 +48,8 @@ def preconditioned_truncated_newton(f, x0, stopping,
     grad_f            : gradient callable x -> ndarray (n,).  If None,
                         computed via centered FD of f using (k, scaled).
     hess_f            : Hessian callable x -> matrix or diagonal.  If None,
-                        Hv products computed via hv_func (matrix-free) e il
-                        precondizionamento e' disattivato (fallback a TN).
+                        Hv products computed via hv_func (matrix-free) and
+                        preconditioning is disabled (fallback to TN).
     k                 : FD step-size exponent (h = 10^{-k}), used when
                         grad_f or hess_f is None
     scaled            : if True, FD step is rescaled by |x_i|
@@ -114,17 +77,16 @@ def preconditioned_truncated_newton(f, x0, stopping,
         raise ValueError("preconditioned_truncated_newton requires x0 and stopping")
 
     t_start = time.perf_counter()
-    # Pubblica (t_start, time_limit) in uno slot a livello di modulo cosi' che le
-    # routine alle differenze finite (grad_fd / hv_fd, prive di argomenti di tempo)
-    # possano leggerlo e sollevare TimeLimitExceeded a meta' valutazione.  Viene
-    # azzerato nel blocco finally piu' sotto.
+    # Publish (t_start, time_limit) in a module-level slot so that the finite-
+    # difference routines (grad_fd / hv_fd, which take no time arguments) can
+    # read it and raise TimeLimitExceeded mid-evaluation.
     set_time_budget(t_start, time_limit)
 
-    # --- resolve FD callables ------------------------------------------------
-    # Se non e' fornito un gradiente esatto lo si sostituisce con un gradiente FD
-    # centrato, congelando (k, scaled) nella closure.  hess_f NON viene risolta
-    # qui: quando e' None il ciclo sotto usa il percorso matrix-free (hv_func) e
-    # il precondizionamento resta disattivato.
+    # --- resolve FD callables ---
+    # If an exact gradient is not provided, it is replaced with a centered FD
+    # gradient, freezing (k, scaled) into the closure.  hess_f is NOT resolved
+    # here: when it is None the loop below uses the matrix-free path (hv_func)
+    # and preconditioning stays disabled.
     if grad_f is None:
         _k, _scaled = k, scaled
         grad_f = lambda x: grad_fd(f, x, k=_k, scaled=_scaled)
@@ -143,10 +105,10 @@ def preconditioned_truncated_newton(f, x0, stopping,
     k_iter = 0
     fx = float('inf')
     g_norm = float('inf')
-    _pc_warned = False   # emette il warning di fallback UNA sola volta per run
+    _pc_warned = False   # emit the fallback warning ONLY once per run
 
     def _warn_once(msg):
-        # Evita di ripetere lo stesso warning a ogni iterazione esterna.
+        # Avoid repeating the same warning on every outer iteration.
         nonlocal _pc_warned
         if not _pc_warned:
             warnings.warn(msg, stacklevel=2)
@@ -161,10 +123,9 @@ def preconditioned_truncated_newton(f, x0, stopping,
             stop_reason = "time_limit"
             raise TimeLimitExceeded()
 
-        # Passa al criterio lo stato iniziale una sola volta, prima del ciclo,
-        # cosi' i test relativi possono memorizzare i valori di riferimento (es.
-        # la norma iniziale del gradiente ||g_0|| usata per scalare una
-        # tolleranza relativa).
+        # Pass the initial state to the criterion only once, before the loop, so
+        # that relative tests can store their reference values (e.g. the initial
+        # gradient norm ||g_0|| used to scale a relative tolerance).
         stopping.initialize(x, fx, g)
 
         if return_history:
@@ -178,32 +139,32 @@ def preconditioned_truncated_newton(f, x0, stopping,
                 stop_reason = "time_limit"
                 break
 
-            # 2.1-2.2: costruisci l'operatore apply_H (H(x) d) e, se possibile,
-            # i due "solve" triangolari del precondizionatore  Linv = L^-1,
-            # LinvT = L^-T  (con M = L L^T ~ H). La fattorizzazione avviene UNA
-            # volta per iterazione esterna (H cambia con x): stessa struttura di
-            # costo del Modified Newton.
+            # 2.1-2.2: build the operator apply_H (H(x) d) and, if possible, the
+            # two triangular "solves" of the preconditioner  Linv = L^-1,
+            # LinvT = L^-T  (with M = L L^T ~ H). The factorization happens ONCE
+            # per outer iteration (H changes with x): same cost structure as
+            # Modified Newton.
             preconditioned = False
             Linv = LinvT = None
 
             if hess_f is not None:
                 H_result = hess_f(x)
                 if isinstance(H_result, np.ndarray) and H_result.ndim == 1:
-                    # Hessiana diagonale fornita come vettore 1D.
+                    # Diagonal Hessian provided as a 1D vector.
                     diag = H_result
                     apply_H = lambda d, _diag=diag: _diag * d
                     if np.all(diag > 0.0):
-                        # IC esatto: L = diag(sqrt(diag)); essendo L diagonale e
-                        # simmetrica, L^-1 = L^-T = divisione per sqrt(diag).
+                        # Exact IC: L = diag(sqrt(diag)); since L is diagonal and
+                        # symmetric, L^-1 = L^-T = division by sqrt(diag).
                         sd = np.sqrt(diag)
                         Linv = LinvT = lambda w, _sd=sd: w / _sd
                         preconditioned = True
                     else:
-                        _warn_once("PTN: diagonale della Hessiana non positiva; "
-                                   "fallback a CG non precondizionato.")
+                        _warn_once("PTN: Hessian diagonal not positive; "
+                                   "falling back to unpreconditioned CG.")
                 elif sp.issparse(H_result):
-                    # Hessiana sparsa diagonale (Problema 16): ne estraiamo la
-                    # diagonale, come fa il TN di base.
+                    # Sparse diagonal Hessian (Problem 16): we extract its
+                    # diagonal, as the basic TN does.
                     diag = np.asarray(H_result.diagonal(), dtype=float)
                     apply_H = lambda d, _diag=diag: _diag * d
                     if np.all(diag > 0.0):
@@ -211,81 +172,78 @@ def preconditioned_truncated_newton(f, x0, stopping,
                         Linv = LinvT = lambda w, _sd=sd: w / _sd
                         preconditioned = True
                     else:
-                        _warn_once("PTN: diagonale della Hessiana non positiva; "
-                                   "fallback a CG non precondizionato.")
+                        _warn_once("PTN: Hessian diagonal not positive; "
+                                   "falling back to unpreconditioned CG.")
                 else:
-                    # Hessiana densa (Problema 28). apply_H come matmul (avvolto in
-                    # una lambda cosi' e' richiamabile anche dentro A_tilde; il
-                    # prodotto e' numericamente identico a quello del TN base).
+                    # Dense Hessian (Problem 28). apply_H as a matmul (wrapped in
+                    # a lambda so it is also callable inside A_tilde; the product
+                    # is numerically identical to that of the basic TN).
                     apply_H = lambda d, _H=H_result: _H @ d
                     try:
-                        # H28 = I + c j j^T e' SPD (c >= 1) -> Cholesky esatto.
+                        # H28 = I + c j j^T is SPD (c >= 1) -> exact Cholesky.
                         L = sla.cholesky(H_result, lower=True)
                         Linv = lambda w, _L=L: sla.solve_triangular(_L, w, lower=True)
                         LinvT = lambda w, _L=L: sla.solve_triangular(_L.T, w, lower=False)
                         preconditioned = True
                     except sla.LinAlgError:
-                        _warn_once("PTN: Cholesky fallita (Hessiana non definita "
-                                   "positiva); fallback a CG non precondizionato.")
+                        _warn_once("PTN: Cholesky failed (Hessian not positive "
+                                   "definite); falling back to unpreconditioned CG.")
             else:
-                # Percorso matrix-free (hess_f=None): nessuna matrice da
-                # fattorizzare -> impossibile precondizionare, ci si comporta
-                # come il Truncated Newton di base.
+                # Matrix-free path (hess_f=None): no matrix to factorize ->
+                # preconditioning impossible, behave like the basic Truncated
+                # Newton.
                 x_k = x
                 _k, _scaled, _hv = k, scaled, hv_func
                 apply_H = lambda d, _x=x_k: _hv(grad_f, _x, d, k=_k, scaled=_scaled)
-                _warn_once("PTN: hess_f=None (modalita' matrix-free), nessuna "
-                           "matrice da precondizionare; fallback a CG non "
-                           "precondizionato.")
+                _warn_once("PTN: hess_f=None (matrix-free mode), no matrix to "
+                           "precondition; falling back to unpreconditioned CG.")
 
             b = -g
             eta_k = _compute_eta(forcing, eta_fixed, g_norm)
 
             if preconditioned:
-                # Operatore precondizionato A~(w) = L^-1 ( H ( L^-T w ) ) e termine
-                # noto b~ = L^-1 (-g).  Riusiamo _cg_truncated INVARIATO su (A~, b~)
-                # e poi riportiamo la direzione nello spazio originale: d = L^-T d~.
+                # Preconditioned operator A~(w) = L^-1 ( H ( L^-T w ) ) and right-
+                # hand side b~ = L^-1 (-g).  We reuse _cg_truncated UNCHANGED on
+                # (A~, b~) and then map the direction back to the original space:
+                # d = L^-T d~.
                 A_tilde = lambda w: Linv(apply_H(LinvT(w)))
                 b_tilde = Linv(b)
                 d_tilde, cg_j, cg_term = _cg_truncated(A_tilde, b_tilde, eta_k,
                                                        cg_max_iter,
                                                        t_start=t_start,
                                                        time_limit=time_limit)
-                # Su curvatura negativa a j==0, _cg_truncated ritorna b~; allora
-                # p = L^-T b~ = M^-1(-g), ancora direzione di discesa
-                # (g^T p = -g^T M^-1 g < 0 perche' M = L L^T e' SPD).
+                # On negative curvature at j==0, _cg_truncated returns b~; then
+                # p = L^-T b~ = M^-1(-g), still a descent direction
+                # (g^T p = -g^T M^-1 g < 0 because M = L L^T is SPD).
                 p = LinvT(d_tilde)
             else:
                 p, cg_j, cg_term = _cg_truncated(apply_H, b, eta_k, cg_max_iter,
                                                  t_start=t_start, time_limit=time_limit)
 
             cg_iters_total += cg_j
-            if cg_term.startswith("negcurv"):   # il CG ha incontrato curvatura non positiva
+            if cg_term.startswith("negcurv"):   # CG encountered non-positive curvature
                 neg_curv_count += 1
-            if cg_term == "time_limit":          # il CG stesso ha esaurito il budget: stop
+            if cg_term == "time_limit":          # CG itself ran out of budget: stop
                 stop_reason = "time_limit"
                 break
 
-            # 2.3: l'Armijo backtracking sceglie il passo alpha lungo p, poi aggiorna
+            # 2.3: Armijo backtracking picks the step alpha along p, then updates
             alpha, n_bt = armijo_backtracking(f, x, fx, g, p,
                                               alpha0=alpha0, c1=c1, rho=rho,
                                               max_iter=max_iter_backtrack,
                                               t_start=t_start, time_limit=time_limit)
             n_backtrack_total += n_bt
-            # Controllo del tempo PRIMA di applicare il passo: se il budget e'
-            # finito durante la line search, armijo_backtracking puo' aver
-            # restituito un alpha non verificato, quindi ci fermiamo mantenendo
-            # l'iterato precedente (buono) invece di compiere un passo che
-            # potrebbe non diminuire f.  Il tempo speso dal refresh di f/gradiente
-            # qui sotto e' intercettato dal controllo in cima all'iterazione
-            # successiva, percio' non serve un secondo controllo qui.
+            # Time check BEFORE applying the step: if the budget ran out during
+            # the line search, armijo_backtracking may have returned an
+            # unverified alpha, so we stop keeping the previous (good) iterate
+            # instead of taking a step that might not decrease f.
             if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
                 stop_reason = "time_limit"
                 break
 
-            x_prev, fx_prev = x.copy(), fx     # ricorda l'iterato precedente per il test di arresto
+            x_prev, fx_prev = x.copy(), fx     # remember the previous iterate for the stopping test
             x = x + alpha * p                  # x^(k+1) = x^(k) + alpha * p
-            fx = f(x)                          # ricalcola f, gradiente e norma del gradiente in x
+            fx = f(x)                          # recompute f, gradient and gradient norm at x
             g = grad_f(x)
             g_norm = float(np.linalg.norm(g))
 
@@ -296,26 +254,26 @@ def preconditioned_truncated_newton(f, x0, stopping,
                                 'cg_iters': cg_j, 'nu_k': float(eta_k),
                                 'cg_termination': cg_term})
 
-            # 2.4: verifica il criterio di convergenza sul nuovo iterato.  Restituisce
-            #      True quando il suo test e' soddisfatto (es. ||g|| sotto tolleranza,
-            #      o piccola variazione di x o di f tra iterazioni).  Un True qui e'
-            #      l'UNICA uscita di vera convergenza: success=True e stop_reason
-            #      registra quale criterio e' scattato (il suo .name), a differenza
-            #      delle uscite "time_limit"/"max_iter" che lasciano success=False.
+            # 2.4: check the convergence criterion on the new iterate.  Returns
+            #      True when its test is satisfied (e.g. ||g|| below tolerance,
+            #      or a small change in x or f between iterations).  A True here
+            #      is the ONLY true-convergence exit: success=True and stop_reason
+            #      records which criterion fired (its .name), unlike the
+            #      "time_limit"/"max_iter" exits which leave success=False.
             if stopping.should_stop(k_iter + 1, x, fx, g, x_prev, fx_prev):
                 success = True
                 stop_reason = stopping.name
                 break
 
-    # Due modi in cui il budget puo' terminare la run: i controlli inline
-    # `if ... break` qui sopra (che impostano stop_reason e escono dal ciclo
-    # normalmente) e TimeLimitExceeded sollevata in profondita' dentro una
-    # valutazione FD del gradiente / prodotto Hessiana-vettore, che risale fin
-    # qui.  In entrambi i casi success=False e in x resta l'ultimo iterato completo.
+    # Two ways the budget can terminate the run: the inline `if ... break` checks
+    # above (which set stop_reason and exit the loop normally) and
+    # TimeLimitExceeded raised deep inside an FD gradient evaluation /
+    # Hessian-vector product, which propagates up here.  In both cases
+    # success=False and x holds the last complete iterate.
     except TimeLimitExceeded:
         stop_reason = "time_limit"
     finally:
-        clear_time_budget()   # rilascia sempre il budget condiviso a livello di modulo
+        clear_time_budget()   # always release the shared module-level budget
 
     result = {
         'x_star': x,

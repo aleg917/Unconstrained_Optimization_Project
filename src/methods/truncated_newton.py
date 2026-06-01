@@ -194,11 +194,10 @@ def truncated_newton(f, x0, stopping,
     t_start = time.perf_counter()
     # Publish (t_start, time_limit) to a module-level slot so the finite-
     # difference routines (grad_fd / hv_fd, which receive no timing arguments)
-    # can read it and raise TimeLimitExceeded mid-evaluation.  Cleared in the
-    # finally block below.
+    # can read it and raise TimeLimitExceeded mid-evaluation.
     set_time_budget(t_start, time_limit)
 
-    # --- resolve FD callables ------------------------------------------------
+    # --- resolve FD callables ----
     # If no exact gradient was supplied, replace it with a centered FD gradient,
     # freezing (k, scaled) into the closure.  hess_f is NOT resolved here: when
     # it is None the loop below uses the matrix-free Hessian-vector path (hv_func)
@@ -294,9 +293,7 @@ def truncated_newton(f, x0, stopping,
             # Time check BEFORE committing the step: if the budget ran out during
             # the line search, armijo_backtracking may have returned an untested
             # alpha, so we stop and keep the previous (good) iterate rather than
-            # take a possibly non-decreasing step.  Time spent by the f/grad
-            # refresh just below is caught by the check at the top of the next
-            # iteration, so no second check is needed here.
+            # take a possibly non-decreasing step.
             if time_limit is not None and (time.perf_counter() - t_start) > time_limit:
                 stop_reason = "time_limit"
                 break
@@ -333,7 +330,7 @@ def truncated_newton(f, x0, stopping,
     except TimeLimitExceeded:
         stop_reason = "time_limit"
     finally:
-        clear_time_budget()   # always release the shared module-level budget
+        clear_time_budget()
 
     result = {
         'x_star': x,
