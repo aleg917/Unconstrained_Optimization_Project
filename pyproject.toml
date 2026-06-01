@@ -1,0 +1,14 @@
+[project]
+name = "unconstrained-optimization-project"
+version = "0.1.0"
+description = "Derivative-based unconstrained optimization experiments for NO4LSP Assignment 2.1."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipython",
+    "jupyter",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+]
